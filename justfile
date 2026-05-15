@@ -46,3 +46,18 @@ logs host=default_host:
         -u ci-nightly-bitcoin-gcc.service \
         -u ci-nightly-bitcoin-gcc-stdlib-debug.service \
         -u ci-nightly-bitcoin-libcxx-hardened.service"
+
+# Start the full Bitcoin Core nightly chain
+[group('live')]
+nightly-start host=default_host:
+    ssh {{host}} "sudo systemctl start ci-nightly-bitcoin-clone.service"
+
+# Show status for all Bitcoin Core nightly services
+[group('live')]
+nightly-status host=default_host:
+    ssh {{host}} "systemctl --no-pager --full status \
+        ci-nightly-bitcoin-clone.service \
+        ci-nightly-bitcoin-update.service \
+        ci-nightly-bitcoin-gcc.service \
+        ci-nightly-bitcoin-gcc-stdlib-debug.service \
+        ci-nightly-bitcoin-libcxx-hardened.service"
