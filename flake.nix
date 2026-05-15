@@ -24,7 +24,7 @@
               ccacheDir = "/var/cache/ci-runner/ccache";
               ccacheMaxSize = "75G";
               workDir = "${ciHome}/work";
-              ctestSite = "beelink";
+              ctestSite = "willcl-ark/beelink";
               cdashBuildNamePrefix = "nixpkgs";
 
               jobs = [
