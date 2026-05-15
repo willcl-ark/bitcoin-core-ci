@@ -6,6 +6,7 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      lib = pkgs.lib;
       llvm = pkgs.llvmPackages_latest;
       cmake = pkgs.stdenvNoCC.mkDerivation rec {
         pname = "kitware-cmake-bin";
@@ -48,9 +49,24 @@
         pkgs.boost
         pkgs.capnproto
         pkgs.libevent
+        pkgs.openssl
         pkgs.sqlite.dev
         pkgs.zeromq
+        pkgs.zlib
       ];
+      cmakePackageInputs = [
+        pkgs.boost
+        pkgs.capnproto
+        pkgs.openssl
+        pkgs.zlib
+      ];
+      cmakePrefixPath = lib.concatStringsSep ":" [
+        (lib.makeSearchPathOutput "dev" "" cmakePackageInputs)
+        (lib.makeSearchPathOutput "out" "" cmakePackageInputs)
+      ];
+      commonShellHook = ''
+        export CMAKE_PREFIX_PATH="${cmakePrefixPath}''${CMAKE_PREFIX_PATH:+:''${CMAKE_PREFIX_PATH}}"
+      '';
     in
     {
       devShells.${system} = {
@@ -60,6 +76,8 @@
           ];
 
           buildInputs = commonBuildInputs;
+
+          shellHook = commonShellHook;
         };
 
         libcxx = pkgs.mkShell.override { stdenv = llvm.libcxxStdenv; } {
@@ -69,7 +87,7 @@
 
           buildInputs = commonBuildInputs;
 
-          shellHook = ''
+          shellHook = commonShellHook + ''
             export CC=clang
             export CXX=clang++
           '';
