@@ -5,8 +5,7 @@
 - This repo owns the NixOS machine configuration for the Beelink SER10 Max.
 - CI job definitions can live here while the setup is small and local.
 - Initial jobs are nightly CMake/CTest dashboard runs for Bitcoin Core.
-- Jobs should be self-contained: each job should provide a flake, CTest script,
-  presets, and any small helper scripts it needs.
+- Bitcoin Core nightly job files live under `jobs/bitcoin-core-nightly`.
 - The first implementation should favor debuggability over isolation.
 
 ## Initial Direction
@@ -39,7 +38,7 @@ daemon, scheduler, or CI server.
 Keep one giant Nix file initially. Split modules only when the file has clear
 repeated shapes or unrelated concerns.
 
-Proposed first layout:
+Initial layout:
 
 ```text
 .
@@ -78,7 +77,14 @@ nix develop /etc/ci/jobs/bitcoin-core-nightly#gcc \
   --command ctest -S scripts/build-unit-test.cmake -V
 ```
 
-Exact paths can change once the NixOS config is written.
+The first Beelink job chain uses the native `x86_64-linux` `gcc` and `libcxx`
+shells from `bitcoin-core-nightly`, with per-job CMake presets for the debug
+libstdc++ and hardened libc++ variants.
+
+CI-owned checkouts live under `/var/lib/ci-runner`. Builds use throwaway Git
+worktrees under `/var/lib/ci-runner/work`, and each service removes its worktree
+on exit. Jobs share one system ccache at `/var/cache/ci-runner/ccache`, capped
+at 75G, with CMake compiler launchers set to `ccache`.
 
 ## Manual Operation
 
@@ -90,10 +96,10 @@ sudo systemctl status ci-nightly-bitcoin-gcc.service
 journalctl -u ci-nightly-bitcoin-gcc.service -f
 ```
 
-To test the full sequence, start the first service manually:
+To test the full sequence, start the clone service manually:
 
 ```sh
-sudo systemctl start ci-nightly-first.service
+sudo systemctl start ci-nightly-bitcoin-clone.service
 ```
 
 To inspect timers:
@@ -106,7 +112,7 @@ systemctl list-timers 'ci-*'
 
 ### Should CTest Scripts Live Here?
 
-For now, yes. The CI lab should be reproducible from this repo, and the current
+Yes. The CI lab should be reproducible from this repo, and the current
 nightly scripts are CI-specific rather than upstream project code.
 
 Revisit this if scripts become generally useful to developers or if multiple
@@ -153,4 +159,3 @@ changing the scheduler model.
 - Jobs share a persistent `ccache`.
 - Job dependencies come from the job flake, not ad hoc host packages.
 - Failures are visible through systemd state and the journal.
-

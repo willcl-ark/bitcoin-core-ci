@@ -1,0 +1,29 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "default",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build"
+    },
+    {
+      "name": "gcc-stdlib-debug",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "APPEND_CXXFLAGS": "-O2 -g2 -fno-omit-frame-pointer",
+        "APPEND_CPPFLAGS": "-D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -D_GLIBCXX_ASSERTIONS -DBOOST_MULTI_INDEX_ENABLE_SAFE_MODE"
+      }
+    },
+    {
+      "name": "libcxx-hardened",
+      "inherits": "default",
+      "cacheVariables": {
+        "BUILD_GUI": "OFF",
+        "ENABLE_IPC": "OFF",
+        "REDUCE_EXPORTS": "ON",
+        "APPEND_CPPFLAGS": "-U_LIBCPP_HARDENING_MODE -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG -D_LIBCPP_REMOVE_TRANSITIVE_INCLUDES"
+      }
+    }
+  ]
+}

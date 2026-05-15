@@ -21,6 +21,9 @@ CMake/CTest jobs, starting with Bitcoin Core nightly dashboard builds.
 - Prefer systemd services and timers for the first scheduler.
 - Preserve a simple manual workflow using `systemctl` and `journalctl`.
 - Sync the machine flake to `/etc/nixos` for remote rebuilds.
+- Keep CI-owned mutable state under `/var/lib/ci-runner`.
+- Keep the shared CI ccache under `/var/cache/ci-runner/ccache`.
+- Do not lock `jobs/bitcoin-core-nightly`; it should follow nightly nixpkgs.
 - Treat VMs as a future job implementation detail, not a first requirement.
 - Do not commit secrets, tokens, private machine data, or CDash credentials.
 - Review diffs before presenting work.
