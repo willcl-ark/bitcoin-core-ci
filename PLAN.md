@@ -79,12 +79,14 @@ nix develop /etc/ci/jobs/bitcoin-core-nightly#gcc \
 
 The first Beelink job chain uses the native `x86_64-linux` `gcc` and `libcxx`
 shells from `bitcoin-core-nightly`, with per-job CMake presets for the debug
-libstdc++ and hardened libc++ variants.
+libstdc++ and hardened libc++ variants. The final GCC job enables CTest build
+instrumentation for CDash timing data.
 
 CI-owned checkouts live under `/var/lib/ci-runner`. Builds use throwaway Git
 worktrees under `/var/lib/ci-runner/work`, and each service removes its worktree
 on exit. Jobs share one system ccache at `/var/cache/ci-runner/ccache`, capped
-at 75G, with CMake compiler launchers set to `ccache`.
+at 75G, with CMake compiler launchers set to `ccache` unless a job opts out for
+un-cached timing instrumentation.
 
 ## Manual Operation
 

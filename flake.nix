@@ -49,6 +49,16 @@
                   cc = "clang";
                   preset = "libcxx-hardened";
                   buildNameSuffix = "libcxx-hardened";
+                  next = "ci-nightly-bitcoin-gcc-instrumented.service";
+                }
+                {
+                  name = "gcc-instrumented";
+                  devShell = "gcc";
+                  cc = "gcc";
+                  preset = "default";
+                  buildNameSuffix = "instrumented";
+                  enableCcache = false;
+                  useInstrumentation = true;
                 }
               ];
 
@@ -65,6 +75,7 @@
                   unitName = "ci-nightly-bitcoin-${job.name}.service";
                   jobWorkDir = "${workDir}/${job.name}";
                   worktree = "${jobWorkDir}/bitcoin";
+                  enableCcache = job.enableCcache or true;
                   script = pkgs.writeShellScript "run-${lib.removeSuffix ".service" unitName}" ''
                     set -euo pipefail
 
@@ -85,14 +96,17 @@
                     git -C ${lib.escapeShellArg worktree} clean -dfx
 
                     cd ${lib.escapeShellArg nightlyJob}
-                    export CCACHE_DIR=${lib.escapeShellArg ccacheDir}
-                    export CCACHE_MAXSIZE=${lib.escapeShellArg ccacheMaxSize}
-                    export CMAKE_C_COMPILER_LAUNCHER=ccache
-                    export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+                    ${lib.optionalString enableCcache ''
+                      export CCACHE_DIR=${lib.escapeShellArg ccacheDir}
+                      export CCACHE_MAXSIZE=${lib.escapeShellArg ccacheMaxSize}
+                      export CMAKE_C_COMPILER_LAUNCHER=ccache
+                      export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+                    ''}
                     export CDASH_BUILD_NAME_PREFIX=${lib.escapeShellArg cdashBuildNamePrefix}
                     ${lib.optionalString (
                       job ? buildNameSuffix
                     ) "export CDASH_BUILD_NAME_SUFFIX=${lib.escapeShellArg job.buildNameSuffix}"}
+                    ${lib.optionalString (job.useInstrumentation or false) "export CTEST_USE_INSTRUMENTATION=1"}
                     export CTEST_CMAKE_GENERATOR=Ninja
                     export CTEST_CONFIGURE_PRESET=${lib.escapeShellArg job.preset}
 

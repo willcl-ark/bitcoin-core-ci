@@ -8,30 +8,34 @@
       pkgs = nixpkgs.legacyPackages.${system};
       lib = pkgs.lib;
       llvm = pkgs.llvmPackages_latest;
-      cmake = pkgs.stdenvNoCC.mkDerivation rec {
-        pname = "kitware-cmake-bin";
-        version = "4.3.2";
+      cmake =
+        if system == "x86_64-linux" then
+          pkgs.stdenvNoCC.mkDerivation rec {
+            pname = "kitware-cmake-bin";
+            version = "4.3.2";
 
-        src = pkgs.fetchurl {
-          url = "https://github.com/Kitware/CMake/releases/download/v${version}/cmake-${version}-linux-x86_64.tar.gz";
-          hash = "sha256-eRrjYEhBygPLOImjrYkWU0bksYCuNEjv1LDKqe9G0kU=";
-        };
+            src = pkgs.fetchurl {
+              url = "https://github.com/Kitware/CMake/releases/download/v${version}/cmake-${version}-linux-x86_64.tar.gz";
+              hash = "sha256-eRrjYEhBygPLOImjrYkWU0bksYCuNEjv1LDKqe9G0kU=";
+            };
 
-        sourceRoot = "cmake-${version}-linux-x86_64";
-        nativeBuildInputs = [ pkgs.autoPatchelfHook ];
-        buildInputs = [ pkgs.glibc ];
+            sourceRoot = "cmake-${version}-linux-x86_64";
+            nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+            buildInputs = [ pkgs.glibc ];
 
-        installPhase = ''
-          runHook preInstall
+            installPhase = ''
+              runHook preInstall
 
-          mkdir -p "$out"
-          cp -R . "$out"
-          rm -f "$out/bin/cmake-gui"
-          rm -rf "$out/doc"
+              mkdir -p "$out"
+              cp -R . "$out"
+              rm -f "$out/bin/cmake-gui"
+              rm -rf "$out/doc"
 
-          runHook postInstall
-        '';
-      };
+              runHook postInstall
+            '';
+          }
+        else
+          pkgs.cmakeCurses;
       commonNativeBuildInputs = [
         pkgs.bison
         pkgs.ccache
