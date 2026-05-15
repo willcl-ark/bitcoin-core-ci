@@ -36,3 +36,13 @@ rebuild type=default_host host=default_host:
 sync-rebuild type=default_host host=default_host:
     just sync {{host}}
     just rebuild {{type}} {{host}}
+
+# Follow all Bitcoin Core nightly service logs
+[group('live')]
+logs host=default_host:
+    ssh {{host}} "journalctl -f -o short-iso \
+        -u ci-nightly-bitcoin-clone.service \
+        -u ci-nightly-bitcoin-update.service \
+        -u ci-nightly-bitcoin-gcc.service \
+        -u ci-nightly-bitcoin-gcc-stdlib-debug.service \
+        -u ci-nightly-bitcoin-libcxx-hardened.service"
