@@ -55,7 +55,7 @@
                   name = "gcc-instrumented";
                   devShell = "gcc";
                   cc = "gcc";
-                  preset = "default";
+                  preset = "gcc-instrumented";
                   buildNameSuffix = "instrumented";
                   enableCcache = false;
                   useInstrumentation = true;
