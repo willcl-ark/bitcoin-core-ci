@@ -19,10 +19,15 @@
             let
               ciHome = "/var/lib/ci-runner";
               nightlyJob = ./jobs/bitcoin-core-nightly;
+              guixJob = ./jobs/bitcoin-core-guix;
               bitcoinRepo = "${ciHome}/bitcoin";
+              guixBitcoinRepo = "${ciHome}/bitcoin-guix";
               bitcoinRepoUrl = "https://github.com/bitcoin/bitcoin";
               ccacheDir = "/var/cache/ci-runner/ccache";
               ccacheMaxSize = "75G";
+              guixSdkDir = "${ciHome}/guix-sdk";
+              guixSourcesDir = "${ciHome}/guix-sources";
+              guixCacheDir = "/var/cache/ci-runner/guix";
               workDir = "${ciHome}/work";
               buildLock = "${ciHome}/build.lock";
               ctestSite = "willcl-ark/beelink";
@@ -156,6 +161,10 @@
               i18n.defaultLocale = "en_GB.UTF-8";
 
               services.openssh.enable = true;
+              services.guix = {
+                enable = true;
+                package = pkgs.guix;
+              };
 
               users.users.root.openssh.authorizedKeys.keys = [
                 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH988C5DbEPHfoCphoW23MWq9M6fmA4UTXREiZU0J7n0 will.hetzner@temp.com"
@@ -205,6 +214,9 @@
                 "d ${ciHome} 0750 ci-runner ci-runner -"
                 "d /var/cache/ci-runner 0750 ci-runner ci-runner -"
                 "d ${ccacheDir} 0750 ci-runner ci-runner -"
+                "d ${guixSdkDir} 0750 ci-runner ci-runner -"
+                "d ${guixSourcesDir} 0750 ci-runner ci-runner -"
+                "d ${guixCacheDir} 0750 ci-runner ci-runner -"
                 "d ${workDir} 0750 ci-runner ci-runner -"
               ];
 
@@ -260,6 +272,104 @@
                     TimeoutStartSec = "30min";
                   };
                 } (chainTo "ci-nightly-bitcoin-gcc.service");
+
+                ci-bitcoin-guix-clone = {
+                  description = "Clone Bitcoin Core source for Guix CI";
+                  wants = [ "network-online.target" ];
+                  after = [ "network-online.target" ];
+                  path = with pkgs; [
+                    coreutils
+                    git
+                  ];
+                  serviceConfig = {
+                    Type = "oneshot";
+                    User = "ci-runner";
+                    Group = "ci-runner";
+                    ExecStart = pkgs.writeShellScript "clone-ci-bitcoin-guix" ''
+                      set -euo pipefail
+
+                      mkdir -p ${lib.escapeShellArg ciHome}
+                      if [ ! -d ${lib.escapeShellArg "${guixBitcoinRepo}/.git"} ]; then
+                        if [ -e ${lib.escapeShellArg guixBitcoinRepo} ]; then
+                          echo "${guixBitcoinRepo} exists but is not a Git checkout" >&2
+                          exit 1
+                        fi
+                        git clone ${lib.escapeShellArg bitcoinRepoUrl} ${lib.escapeShellArg guixBitcoinRepo}
+                      fi
+                    '';
+                    TimeoutStartSec = "30min";
+                  };
+                };
+
+                ci-bitcoin-guix-sdk = {
+                  description = "Download Bitcoin Core Guix macOS SDK";
+                  wants = [ "network-online.target" ];
+                  after = [ "network-online.target" ];
+                  unitConfig.ConditionPathExists = "!${guixSdkDir}/Xcode-26.1.1-17B100-extracted-SDK-with-libcxx-headers";
+                  path = with pkgs; [
+                    bash
+                    coreutils
+                    curl
+                    gnutar
+                  ];
+                  serviceConfig = {
+                    Type = "oneshot";
+                    User = "ci-runner";
+                    Group = "ci-runner";
+                    WorkingDirectory = guixSdkDir;
+                    ExecStart = pkgs.writeShellScript "download-ci-bitcoin-guix-sdk" ''
+                      set -euo pipefail
+
+                      curl -fL https://bitcoincore.org/depends-sources/sdks/Xcode-26.1.1-17B100-extracted-SDK-with-libcxx-headers.tar \
+                        | tar -xf - -C ${lib.escapeShellArg guixSdkDir}
+                    '';
+                    TimeoutStartSec = "30min";
+                  };
+                };
+
+                ci-bitcoin-guix = {
+                  description = "Bitcoin Core Guix continuous CI";
+                  wantedBy = [ "multi-user.target" ];
+                  wants = [
+                    "network-online.target"
+                    "ci-bitcoin-guix-clone.service"
+                    "ci-bitcoin-guix-sdk.service"
+                  ];
+                  after = [
+                    "network-online.target"
+                    "ci-bitcoin-guix-clone.service"
+                    "ci-bitcoin-guix-sdk.service"
+                    "guix-daemon.service"
+                  ];
+                  requires = [
+                    "ci-bitcoin-guix-clone.service"
+                    "ci-bitcoin-guix-sdk.service"
+                  ];
+                  path = with pkgs; [
+                    bash
+                    cmake
+                    coreutils
+                    git
+                    util-linux
+                  ];
+                  environment = {
+                    BASE_CACHE = guixCacheDir;
+                    BITCOIN_PATH = guixBitcoinRepo;
+                    BUILD_LOCK = buildLock;
+                    CTEST_SITE = ctestSite;
+                    SDK_PATH = guixSdkDir;
+                    SOURCES_PATH = guixSourcesDir;
+                  };
+                  serviceConfig = {
+                    Type = "simple";
+                    User = "ci-runner";
+                    Group = "ci-runner";
+                    WorkingDirectory = guixBitcoinRepo;
+                    ExecStart = "${pkgs.cmake}/bin/ctest --verbose -S ${guixJob}/scripts/guix.cmake";
+                    Restart = "always";
+                    RestartSec = "60";
+                  };
+                };
               }
               // lib.listToAttrs (map mkJobService jobs);
 
