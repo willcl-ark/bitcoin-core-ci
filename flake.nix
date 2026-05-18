@@ -24,6 +24,7 @@
               ccacheDir = "/var/cache/ci-runner/ccache";
               ccacheMaxSize = "75G";
               workDir = "${ciHome}/work";
+              buildLock = "${ciHome}/build.lock";
               ctestSite = "willcl-ark/beelink";
               cdashBuildNamePrefix = "nixpkgs";
 
@@ -110,7 +111,8 @@
                     export CTEST_CMAKE_GENERATOR=Ninja
                     export CTEST_CONFIGURE_PRESET=${lib.escapeShellArg job.preset}
 
-                    nix develop ${lib.escapeShellArg "${nightlyJob}#${job.devShell}"} \
+                    flock ${lib.escapeShellArg buildLock} \
+                      nix develop ${lib.escapeShellArg "${nightlyJob}#${job.devShell}"} \
                       --system x86_64-linux \
                       --no-write-lock-file \
                       --command bash -euo pipefail -c '
@@ -128,6 +130,7 @@
                     path = with pkgs; [
                       bash
                       coreutils
+                      util-linux
                       git
                       nix
                     ];
