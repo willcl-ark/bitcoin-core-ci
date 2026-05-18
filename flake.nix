@@ -20,14 +20,19 @@
               ciHome = "/var/lib/ci-runner";
               nightlyJob = ./jobs/bitcoin-core-nightly;
               guixJob = ./jobs/bitcoin-core-guix;
+              valgrindFuzzJob = ./jobs/bitcoin-core-valgrind-fuzz;
               bitcoinRepo = "${ciHome}/bitcoin";
               guixBitcoinRepo = "${ciHome}/bitcoin-guix";
+              valgrindFuzzBitcoinRepo = "${ciHome}/bitcoin-valgrind-fuzz";
               bitcoinRepoUrl = "https://github.com/bitcoin/bitcoin";
+              qaAssetsRepoUrl = "https://github.com/bitcoin-core/qa-assets";
               ccacheDir = "/var/cache/ci-runner/ccache";
               ccacheMaxSize = "75G";
               guixSdkDir = "${ciHome}/guix-sdk";
               guixSourcesDir = "${ciHome}/guix-sources";
               guixCacheDir = "/var/cache/ci-runner/guix";
+              qaAssetsDir = "${ciHome}/qa-assets";
+              valgrindFuzzBuildDir = "${ciHome}/valgrind-fuzz-build";
               workDir = "${ciHome}/work";
               buildLock = "${ciHome}/build.lock";
               ctestSite = "willcl-ark/beelink";
@@ -217,6 +222,8 @@
                 "d ${guixSdkDir} 0750 ci-runner ci-runner -"
                 "d ${guixSourcesDir} 0750 ci-runner ci-runner -"
                 "d ${guixCacheDir} 0750 ci-runner ci-runner -"
+                "d ${qaAssetsDir} 0750 ci-runner ci-runner -"
+                "d ${valgrindFuzzBuildDir} 0750 ci-runner ci-runner -"
                 "d ${workDir} 0750 ci-runner ci-runner -"
               ];
 
@@ -366,6 +373,111 @@
                     Group = "ci-runner";
                     WorkingDirectory = guixBitcoinRepo;
                     ExecStart = "${pkgs.cmake}/bin/ctest --verbose -S ${guixJob}/scripts/guix.cmake";
+                    Restart = "always";
+                    RestartSec = "60";
+                  };
+                };
+
+                ci-bitcoin-valgrind-fuzz-clone = {
+                  description = "Clone Bitcoin Core source for valgrind fuzz CI";
+                  wants = [ "network-online.target" ];
+                  after = [ "network-online.target" ];
+                  path = with pkgs; [
+                    coreutils
+                    git
+                  ];
+                  serviceConfig = {
+                    Type = "oneshot";
+                    User = "ci-runner";
+                    Group = "ci-runner";
+                    ExecStart = pkgs.writeShellScript "clone-ci-bitcoin-valgrind-fuzz" ''
+                      set -euo pipefail
+
+                      mkdir -p ${lib.escapeShellArg ciHome}
+                      if [ ! -d ${lib.escapeShellArg "${valgrindFuzzBitcoinRepo}/.git"} ]; then
+                        if [ -e ${lib.escapeShellArg valgrindFuzzBitcoinRepo} ]; then
+                          echo "${valgrindFuzzBitcoinRepo} exists but is not a Git checkout" >&2
+                          exit 1
+                        fi
+                        git clone ${lib.escapeShellArg bitcoinRepoUrl} ${lib.escapeShellArg valgrindFuzzBitcoinRepo}
+                      fi
+                    '';
+                    TimeoutStartSec = "30min";
+                  };
+                };
+
+                ci-bitcoin-qa-assets-clone = {
+                  description = "Clone Bitcoin Core qa-assets for valgrind fuzz CI";
+                  wants = [ "network-online.target" ];
+                  after = [ "network-online.target" ];
+                  path = with pkgs; [
+                    coreutils
+                    git
+                  ];
+                  serviceConfig = {
+                    Type = "oneshot";
+                    User = "ci-runner";
+                    Group = "ci-runner";
+                    ExecStart = pkgs.writeShellScript "clone-ci-bitcoin-qa-assets" ''
+                      set -euo pipefail
+
+                      mkdir -p ${lib.escapeShellArg ciHome}
+                      if [ ! -d ${lib.escapeShellArg "${qaAssetsDir}/.git"} ]; then
+                        if [ -e ${lib.escapeShellArg qaAssetsDir} ]; then
+                          echo "${qaAssetsDir} exists but is not a Git checkout" >&2
+                          exit 1
+                        fi
+                        git clone ${lib.escapeShellArg qaAssetsRepoUrl} ${lib.escapeShellArg qaAssetsDir}
+                      fi
+                    '';
+                    TimeoutStartSec = "30min";
+                  };
+                };
+
+                ci-bitcoin-valgrind-fuzz = {
+                  description = "Bitcoin Core valgrind fuzz continuous CI";
+                  wantedBy = [ "multi-user.target" ];
+                  wants = [
+                    "network-online.target"
+                    "ci-bitcoin-valgrind-fuzz-clone.service"
+                    "ci-bitcoin-qa-assets-clone.service"
+                  ];
+                  after = [
+                    "network-online.target"
+                    "ci-bitcoin-valgrind-fuzz-clone.service"
+                    "ci-bitcoin-qa-assets-clone.service"
+                  ];
+                  requires = [
+                    "ci-bitcoin-valgrind-fuzz-clone.service"
+                    "ci-bitcoin-qa-assets-clone.service"
+                  ];
+                  path = with pkgs; [
+                    bash
+                    coreutils
+                    git
+                    nix
+                    util-linux
+                  ];
+                  environment = {
+                    BITCOIN_PATH = valgrindFuzzBitcoinRepo;
+                    BUILD_LOCK = buildLock;
+                    CTEST_SITE = ctestSite;
+                    QA_ASSETS_PATH = qaAssetsDir;
+                    VALGRIND_FUZZ_BUILD_DIR = valgrindFuzzBuildDir;
+                  };
+                  serviceConfig = {
+                    Type = "simple";
+                    User = "ci-runner";
+                    Group = "ci-runner";
+                    WorkingDirectory = valgrindFuzzJob;
+                    ExecStart = pkgs.writeShellScript "run-ci-bitcoin-valgrind-fuzz" ''
+                      set -euo pipefail
+
+                      nix develop ${lib.escapeShellArg "${valgrindFuzzJob}#gcc"} \
+                        --system x86_64-linux \
+                        --no-write-lock-file \
+                        --command ctest --verbose -S scripts/valgrind-fuzz.cmake
+                    '';
                     Restart = "always";
                     RestartSec = "60";
                   };
