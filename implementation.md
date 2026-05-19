@@ -14,3 +14,12 @@
   configuration.
 - Continuous watchers use `git ls-remote`, so they do not mutate the checkouts
   used by running jobs.
+
+## Bitcoin Core Guix job
+
+- The Guix dashboard build writes the full `contrib/guix/guix-build` stream to
+  `guix-build.log` in the checkout and submits it to CDash as a note. CTest's
+  normal build parser only reports parsed warnings/errors, which can hide the
+  command output for early Guix failures.
+- `run-guix.sh` prints the last 200 log lines when the CTest script fails so
+  `journalctl -u ci-runner.service` has immediate failure context.

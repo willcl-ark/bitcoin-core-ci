@@ -19,6 +19,17 @@ fi
 git -C "${BITCOIN_REPO}" reset --hard HEAD
 
 cd "${BITCOIN_REPO}"
+guix_build_log="${BITCOIN_REPO}/guix-build.log"
+set +e
 ctest --verbose -S "${GUIX_JOB_DIR}/scripts/guix.cmake" \
     -DCTEST_SOURCE_DIRECTORY="${BITCOIN_REPO}" \
     -DCTEST_SITE="${CTEST_SITE}"
+ctest_status=$?
+set -e
+
+if [ "${ctest_status}" -ne 0 ] && [ -f "${guix_build_log}" ]; then
+    echo "Guix build failed; last 200 lines from ${guix_build_log}:"
+    tail -n 200 "${guix_build_log}"
+fi
+
+exit "${ctest_status}"

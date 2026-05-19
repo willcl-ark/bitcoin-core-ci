@@ -9,7 +9,10 @@ get_filename_component(CTEST_SOURCE_DIRECTORY "${CTEST_SOURCE_DIRECTORY}" ABSOLU
 set(CTEST_BINARY_DIRECTORY "${CTEST_SOURCE_DIRECTORY}")
 set(CTEST_BUILD_NAME "guix_multi_${CMAKE_HOST_SYSTEM_PROCESSOR}")
 set(CTEST_GIT_COMMAND "git")
-set(CTEST_BUILD_COMMAND "bash -c \"unset SOURCE_DATE_EPOCH && '${CTEST_SOURCE_DIRECTORY}/contrib/guix/guix-build'\"")
+set(GUIX_BUILD_LOG "${CTEST_BINARY_DIRECTORY}/guix-build.log")
+set(CTEST_BUILD_COMMAND "bash '${CMAKE_CURRENT_LIST_DIR}/run-guix-build.sh' '${CTEST_SOURCE_DIRECTORY}' '${GUIX_BUILD_LOG}'")
+
+set(CTEST_NOTES_FILES "${CMAKE_CURRENT_LIST_FILE}")
 
 execute_process(
     COMMAND git clean -dfx --exclude=CTestConfig.cmake --exclude=CTestCustom.cmake
@@ -19,7 +22,11 @@ execute_process(
 
 ctest_start(Continuous)
 ctest_update()
-ctest_build()
+ctest_build(RETURN_VALUE build_result)
+
+if(EXISTS "${GUIX_BUILD_LOG}")
+    list(APPEND CTEST_NOTES_FILES "${GUIX_BUILD_LOG}")
+endif()
 
 set(HASH_FILE "${CTEST_BINARY_DIRECTORY}/build-hashes.txt")
 execute_process(
@@ -34,7 +41,12 @@ execute_process(
     WORKING_DIRECTORY ${CTEST_SOURCE_DIRECTORY}
 )
 if(EXISTS "${HASH_FILE}")
-    set(CTEST_NOTES_FILES "${HASH_FILE}")
+    list(APPEND CTEST_NOTES_FILES "${HASH_FILE}")
 endif()
 
-ctest_submit()
+list(REMOVE_DUPLICATES CTEST_NOTES_FILES)
+ctest_submit(PARTS Update Build Notes Done)
+
+if(NOT build_result EQUAL 0)
+    message(FATAL_ERROR "Guix build failed with exit code ${build_result}; see ${GUIX_BUILD_LOG}")
+endif()
