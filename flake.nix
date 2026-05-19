@@ -424,8 +424,10 @@
                       mkdir -p ${lib.escapeShellArg ciHome}
                       if [ ! -d ${lib.escapeShellArg "${qaAssetsDir}/.git"} ]; then
                         if [ -e ${lib.escapeShellArg qaAssetsDir} ]; then
-                          echo "${qaAssetsDir} exists but is not a Git checkout" >&2
-                          exit 1
+                          if [ -n "$(find ${lib.escapeShellArg qaAssetsDir} -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+                            echo "${qaAssetsDir} exists but is not a Git checkout" >&2
+                            exit 1
+                          fi
                         fi
                         git clone ${lib.escapeShellArg qaAssetsRepoUrl} ${lib.escapeShellArg qaAssetsDir}
                       fi
