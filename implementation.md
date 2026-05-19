@@ -23,3 +23,6 @@
   command output for early Guix failures.
 - `run-guix.sh` prints the last 200 log lines when the CTest script fails so
   `journalctl -u ci-runner.service` has immediate failure context.
+- Guix builds inherit their executable search path from `ci-runner.service`.
+  Keep required host-side tools such as `make`, `getent`, and `sed` in that
+  service path rather than in the job script.

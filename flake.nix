@@ -189,7 +189,10 @@
                     coreutils
                     curl
                     findutils
+                    getent
                     git
+                    gnumake
+                    gnused
                     gnutar
                     guix
                     nix
