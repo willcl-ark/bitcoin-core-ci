@@ -103,9 +103,19 @@ def load_config(path):
 
 
 def run_item(config, item):
-    unit = config[item["job"]]["unit"]
-    print(f"starting {item['id']} via {unit}", flush=True)
-    result = subprocess.run(["systemctl", "--user", "start", "--wait", unit])
+    job = config[item["job"]]
+    env = os.environ.copy()
+    env.update({key: str(value) for key, value in job.get("env", {}).items()})
+    env.update(
+        {
+            "CI_JOB_ID": item["id"],
+            "CI_JOB_KIND": item["kind"],
+            "CI_REVISION": item.get("revision", ""),
+        }
+    )
+
+    print(f"starting {item['id']}: {' '.join(job['command'])}", flush=True)
+    result = subprocess.run(job["command"], cwd=job.get("cwd"), env=env)
     print(f"finished {item['id']} with exit code {result.returncode}", flush=True)
     return result.returncode
 
@@ -153,24 +163,23 @@ def fail_running_items(queue_paths):
             path.unlink()
 
 
-def git_output(repo, *args):
-    return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+def remote_revision(remote, ref):
+    output = subprocess.check_output(["git", "ls-remote", remote, ref], text=True).strip()
+    return output.split()[0]
 
 
 def watch_git_ref(args):
     queue_paths = ensure_queue(args.queue_dir)
-    repo = pathlib.Path(args.repo)
     state_file = queue_paths["watch"] / f"{args.job}.json"
     try:
         state = load_json(state_file)
         last_seen = state["last_seen"]
     except FileNotFoundError:
-        last_seen = git_output(repo, "rev-parse", "HEAD")
+        last_seen = remote_revision(args.remote, args.ref)
         write_json(state_file, {"last_seen": last_seen})
 
     while True:
-        subprocess.run(["git", "fetch", "origin"], cwd=repo, check=True)
-        revision = git_output(repo, "rev-parse", args.ref)
+        revision = remote_revision(args.remote, args.ref)
         if revision != last_seen:
             enqueue_args = argparse.Namespace(
                 queue_dir=args.queue_dir,
@@ -222,8 +231,8 @@ def main():
 
     watch_parser = subparsers.add_parser("watch-git-ref")
     watch_parser.add_argument("job")
-    watch_parser.add_argument("--repo", required=True)
-    watch_parser.add_argument("--ref", default="origin/master")
+    watch_parser.add_argument("--remote", required=True)
+    watch_parser.add_argument("--ref", default="refs/heads/master")
     watch_parser.add_argument("--kind", default="continuous")
     watch_parser.add_argument("--dedupe-key")
     watch_parser.add_argument("--poll-interval", type=int, default=60)

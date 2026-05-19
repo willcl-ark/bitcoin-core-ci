@@ -18,7 +18,7 @@ CMake/CTest jobs, starting with Bitcoin Core dashboard builds.
   `machines/<name>/hardware-configuration.nix` file.
 - Keep machine setup small; put build tools and project dependencies in job
   flakes.
-- Prefer the generic Python queue runner plus systemd user units for job
+- Prefer the generic Python queue runner plus simple systemd units for job
   scheduling.
 - Preserve a simple manual workflow using `systemctl` and `journalctl`.
 - Sync the machine flake to `/etc/nixos` for remote rebuilds.

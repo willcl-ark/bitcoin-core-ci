@@ -16,7 +16,7 @@ Start with a single NixOS configuration file that defines:
 - a dedicated CI user;
 - shared build/cache directories;
 - a small filesystem-backed queue runner;
-- one systemd user service per runnable job;
+- job-local scripts run directly by the queue runner;
 - producer services/timers that enqueue work.
 
 Run jobs on the host at first, not in VMs. Host execution is easier to inspect,
@@ -29,7 +29,7 @@ Use a local queue for sequential execution:
 - continuous watcher services enqueue latest-only jobs when `origin/master`
   advances;
 - `ci-runner.service` consumes one queued item at a time;
-- each queued item starts one configured systemd user job unit.
+- each queued item runs one configured job-local script.
 
 This gives a simple "one host job at a time" model without introducing an
 external CI server or database.
@@ -70,8 +70,8 @@ Each job should have:
 - a source checkout path or fetch/update step;
 - a flake dev shell or package environment;
 - a `ctest -S ...` command;
-- a systemd user job unit;
-- logs in the user journal;
+- a configured runner command;
+- logs in the system journal;
 - any external submission credentials passed through systemd credentials or
   root-owned environment files, not committed to the repo.
 
@@ -102,9 +102,9 @@ watchers replace older pending queue items for the same job.
 Manual testing should use normal systemd commands:
 
 ```sh
-sudo -u ci-runner systemctl --user start ci-nightly-bitcoin-enqueue.service
-sudo -u ci-runner systemctl --user status ci-runner.service
-sudo -u ci-runner journalctl --user -u ci-runner.service -f
+sudo systemctl start ci-nightly-bitcoin-enqueue.service
+sudo systemctl status ci-runner.service
+sudo journalctl -u ci-runner.service -f
 ```
 
 To inspect queued work:
@@ -131,17 +131,17 @@ machines need to share them independently of machine configuration.
 
 ### How Should Jobs Run?
 
-Run one queued job at a time through `ci-runner.service`, which starts
-configured systemd user job units. Avoid VMs until there is a specific need
-such as kernel variation, distribution variation, destructive tests, privilege
-isolation, or reproducing a platform that cannot be expressed cleanly in a Nix
-shell.
+Run one queued job at a time through `ci-runner.service`, which executes
+configured job commands directly as the `ci-runner` user. Avoid VMs until there
+is a specific need such as kernel variation, distribution variation,
+destructive tests, privilege isolation, or reproducing a platform that cannot be
+expressed cleanly in a Nix shell.
 
 ### How Are Nightlies Tested Manually?
 
 Expose enqueue/status/log commands through `just`, while keeping the raw
-interfaces simple: `systemctl --user`, `journalctl --user`, and
-`ci-runner status` as the `ci-runner` user.
+interfaces simple: `systemctl`, `journalctl`, and `ci-runner status` as the
+`ci-runner` user.
 
 ### How Minimal Should System Setup Be?
 
@@ -159,9 +159,9 @@ flake.
 
 ### What About Future VM Jobs?
 
-Keep the job-unit boundary stable so a future job can replace `nix develop`
-with `nixos-rebuild build-vm`, `nix run`, `systemd-nspawn`, or a QEMU wrapper
-without changing the scheduler model.
+Keep the runner command boundary stable so a future job can replace
+`nix develop` with `nixos-rebuild build-vm`, `nix run`, `systemd-nspawn`, or a
+QEMU wrapper without changing the scheduler model.
 
 ## Success Criteria For The First Implementation
 
@@ -170,4 +170,4 @@ without changing the scheduler model.
 - A timer can enqueue the nightly job automatically.
 - Jobs share a persistent `ccache`.
 - Job dependencies come from the job flake, not ad hoc host packages.
-- Failures are visible through systemd state and the journal.
+- Failures are visible through queue status and the journal.

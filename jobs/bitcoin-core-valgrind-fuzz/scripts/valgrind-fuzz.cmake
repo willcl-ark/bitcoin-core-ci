@@ -2,7 +2,7 @@ if(NOT DEFINED CTEST_SITE)
     set(CTEST_SITE "$ENV{CTEST_SITE}")
 endif()
 if(NOT DEFINED CTEST_SOURCE_DIRECTORY)
-    set(CTEST_SOURCE_DIRECTORY "$ENV{BITCOIN_PATH}")
+    set(CTEST_SOURCE_DIRECTORY "$ENV{BITCOIN_REPO}")
 endif()
 
 get_filename_component(CTEST_SOURCE_DIRECTORY "${CTEST_SOURCE_DIRECTORY}" ABSOLUTE)
@@ -11,12 +11,6 @@ set(CTEST_BUILD_NAME "valgrind-fuzz")
 set(CTEST_CMAKE_GENERATOR "Ninja")
 set(CTEST_GIT_COMMAND "git")
 set(QA_ASSETS_PATH "$ENV{QA_ASSETS_PATH}")
-
-execute_process(
-    COMMAND git pull --ff-only
-    WORKING_DIRECTORY ${QA_ASSETS_PATH}
-    COMMAND_ERROR_IS_FATAL ANY
-)
 
 execute_process(
     COMMAND git clean -dfx --exclude=CTestConfig.cmake --exclude=CTestCustom.cmake --exclude=CMakeUserPresets.json

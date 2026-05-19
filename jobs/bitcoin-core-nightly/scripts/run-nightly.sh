@@ -4,10 +4,20 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 run_one="${script_dir}/run-nightly-one.sh"
 
-git -C "${BITCOIN_REPO}" clean -dfx
+if [ ! -d "${BITCOIN_REPO}/.git" ]; then
+    git clone --depth=1 "${BITCOIN_REPO_URL}" "${BITCOIN_REPO}"
+fi
+
+if [ -n "${CI_REVISION:-}" ]; then
+    git -C "${BITCOIN_REPO}" fetch --depth=1 origin "${CI_REVISION}"
+    git -C "${BITCOIN_REPO}" checkout --detach "${CI_REVISION}"
+else
+    git -C "${BITCOIN_REPO}" fetch --depth=1 origin master
+    git -C "${BITCOIN_REPO}" checkout -B master FETCH_HEAD
+fi
+
 git -C "${BITCOIN_REPO}" reset --hard HEAD
-git -C "${BITCOIN_REPO}" checkout master
-git -C "${BITCOIN_REPO}" pull --ff-only --depth=1 origin master
+git -C "${BITCOIN_REPO}" clean -dfx
 git -C "${BITCOIN_REPO}" rev-parse HEAD
 
 status=0
