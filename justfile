@@ -45,7 +45,10 @@ logs host=default_host:
         -u ci-nightly-bitcoin-update.service \
         -u ci-nightly-bitcoin-gcc.service \
         -u ci-nightly-bitcoin-gcc-stdlib-debug.service \
-        -u ci-nightly-bitcoin-libcxx-hardened.service"
+        -u ci-nightly-bitcoin-libcxx-hardened.service \
+        -u ci-nightly-bitcoin-gcc-instrumented.service \
+        -u ci-bitcoin-guix.service \
+        -u ci-bitcoin-valgrind-fuzz.service"
 
 # Start the full Bitcoin Core nightly chain
 [group('live')]
@@ -60,4 +63,5 @@ nightly-status host=default_host:
         ci-nightly-bitcoin-update.service \
         ci-nightly-bitcoin-gcc.service \
         ci-nightly-bitcoin-gcc-stdlib-debug.service \
-        ci-nightly-bitcoin-libcxx-hardened.service"
+        ci-nightly-bitcoin-libcxx-hardened.service \
+        ci-nightly-bitcoin-gcc-instrumented.service"
