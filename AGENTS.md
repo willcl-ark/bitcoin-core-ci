@@ -5,8 +5,8 @@ change, consider whether these instructions need a small update.
 
 ## Project Goal
 
-This repo defines a NixOS-based home CI lab for running self-contained
-CMake/CTest jobs, starting with Bitcoin Core nightly dashboard builds.
+This repo defines a NixOS-based home CI lab for running queued, self-contained
+CMake/CTest jobs, starting with Bitcoin Core dashboard builds.
 
 ## Working Rules
 
@@ -18,10 +18,12 @@ CMake/CTest jobs, starting with Bitcoin Core nightly dashboard builds.
   `machines/<name>/hardware-configuration.nix` file.
 - Keep machine setup small; put build tools and project dependencies in job
   flakes.
-- Prefer systemd services and timers for the first scheduler.
+- Prefer the generic Python queue runner plus systemd user units for job
+  scheduling.
 - Preserve a simple manual workflow using `systemctl` and `journalctl`.
 - Sync the machine flake to `/etc/nixos` for remote rebuilds.
 - Keep CI-owned mutable state under `/var/lib/ci-runner`.
+- Keep queue state under `/var/lib/ci-runner/queue`.
 - Keep the shared CI ccache under `/var/cache/ci-runner/ccache`.
 - Let timing/instrumentation jobs opt out of ccache when cached timings would
   hide useful build-cost data.
@@ -37,6 +39,8 @@ CMake/CTest jobs, starting with Bitcoin Core nightly dashboard builds.
 - `flake.nix` should contain the initial NixOS configuration.
 - `machines/` should contain generated per-machine hardware configuration.
 - `jobs/` should contain job-owned flakes, CTest scripts, presets, and helpers.
+- `runner/` should contain generic queue orchestration only; keep
+  project-specific job behavior in job scripts and systemd unit wiring.
 
 ## When To Update This File
 

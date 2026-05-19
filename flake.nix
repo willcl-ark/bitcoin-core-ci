@@ -34,126 +34,35 @@
               qaAssetsDir = "${ciHome}/qa-assets";
               valgrindFuzzBuildDir = "${ciHome}/valgrind-fuzz-build";
               workDir = "${ciHome}/work";
-              buildLock = "${ciHome}/build.lock";
+              queueDir = "${ciHome}/queue";
+              runnerConfig = pkgs.writeText "ci-runner-jobs.json" (
+                builtins.toJSON {
+                  jobs = {
+                    bitcoin-nightly.unit = "ci-job-bitcoin-nightly.service";
+                    bitcoin-guix.unit = "ci-job-bitcoin-guix.service";
+                    bitcoin-valgrind-fuzz.unit = "ci-job-bitcoin-valgrind-fuzz.service";
+                  };
+                }
+              );
+              ciRunner = pkgs.writeTextFile {
+                name = "ci-runner";
+                executable = true;
+                destination = "/bin/ci-runner";
+                text = "#!${pkgs.python3}/bin/python3\n" + builtins.readFile ./runner/ci_runner.py;
+              };
               ctestSite = "willcl-ark/beelink";
               cdashBuildNamePrefix = "nixpkgs";
 
-              jobs = [
-                {
-                  name = "gcc";
-                  devShell = "gcc";
-                  cc = "gcc";
-                  preset = "default";
-                  next = "ci-nightly-bitcoin-gcc-stdlib-debug.service";
-                }
-                {
-                  name = "gcc-stdlib-debug";
-                  devShell = "gcc";
-                  cc = "gcc";
-                  preset = "gcc-stdlib-debug";
-                  buildNameSuffix = "gcc-stdlib-debug";
-                  next = "ci-nightly-bitcoin-libcxx-hardened.service";
-                }
-                {
-                  name = "libcxx-hardened";
-                  devShell = "libcxx";
-                  cc = "clang";
-                  preset = "libcxx-hardened";
-                  buildNameSuffix = "libcxx-hardened";
-                  next = "ci-nightly-bitcoin-gcc-instrumented.service";
-                }
-                {
-                  name = "gcc-instrumented";
-                  devShell = "gcc";
-                  cc = "gcc";
-                  preset = "gcc-instrumented";
-                  buildNameSuffix = "instrumented";
-                  enableCcache = false;
-                  useInstrumentation = true;
-                }
-              ];
-
-              chainTo = unit: {
-                unitConfig = {
-                  OnSuccess = unit;
-                  OnFailure = unit;
-                };
-              };
-
-              mkJobService =
-                job:
-                let
-                  unitName = "ci-nightly-bitcoin-${job.name}.service";
-                  jobWorkDir = "${workDir}/${job.name}";
-                  worktree = "${jobWorkDir}/bitcoin";
-                  enableCcache = job.enableCcache or true;
-                  script = pkgs.writeShellScript "run-${lib.removeSuffix ".service" unitName}" ''
-                    set -euo pipefail
-
-                    cleanup() {
-                      set +e
-                      if [ -d ${lib.escapeShellArg "${bitcoinRepo}/.git"} ]; then
-                        git -C ${lib.escapeShellArg bitcoinRepo} worktree remove --force ${lib.escapeShellArg worktree} 2>/dev/null
-                        git -C ${lib.escapeShellArg bitcoinRepo} worktree prune 2>/dev/null
-                      fi
-                      rm -rf -- ${lib.escapeShellArg jobWorkDir}
-                    }
-                    trap cleanup EXIT
-
-                    cleanup
-                    mkdir -p ${lib.escapeShellArg jobWorkDir}
-                    git -C ${lib.escapeShellArg bitcoinRepo} clean -dfx
-                    git -C ${lib.escapeShellArg bitcoinRepo} worktree add --detach ${lib.escapeShellArg worktree} HEAD
-                    git -C ${lib.escapeShellArg worktree} clean -dfx
-
-                    cd ${lib.escapeShellArg nightlyJob}
-                    ${lib.optionalString enableCcache ''
-                      export CCACHE_DIR=${lib.escapeShellArg ccacheDir}
-                      export CCACHE_MAXSIZE=${lib.escapeShellArg ccacheMaxSize}
-                      export CMAKE_C_COMPILER_LAUNCHER=ccache
-                      export CMAKE_CXX_COMPILER_LAUNCHER=ccache
-                    ''}
-                    export CDASH_BUILD_NAME_PREFIX=${lib.escapeShellArg cdashBuildNamePrefix}
-                    ${lib.optionalString (
-                      job ? buildNameSuffix
-                    ) "export CDASH_BUILD_NAME_SUFFIX=${lib.escapeShellArg job.buildNameSuffix}"}
-                    ${lib.optionalString (job.useInstrumentation or false) "export CTEST_USE_INSTRUMENTATION=1"}
-                    export CTEST_CMAKE_GENERATOR=Ninja
-                    export CTEST_CONFIGURE_PRESET=${lib.escapeShellArg job.preset}
-
-                    flock ${lib.escapeShellArg buildLock} \
-                      nix develop ${lib.escapeShellArg "${nightlyJob}#${job.devShell}"} \
-                      --system x86_64-linux \
-                      --no-write-lock-file \
-                      --command bash -euo pipefail -c '
-                        export CC="$1"
-                        ctest --verbose -S scripts/build-unit-test.cmake \
-                          -DCTEST_SOURCE_DIRECTORY="$2" \
-                          -DCTEST_SITE="$3"
-                      ' bash ${lib.escapeShellArg job.cc} ${lib.escapeShellArg worktree} ${lib.escapeShellArg ctestSite}
-                  '';
-                in
-                {
-                  name = lib.removeSuffix ".service" unitName;
-                  value = lib.recursiveUpdate {
-                    description = "Bitcoin Core nightly ${job.name}";
-                    path = with pkgs; [
-                      bash
-                      coreutils
-                      util-linux
-                      git
-                      nix
-                    ];
-                    serviceConfig = {
-                      Type = "oneshot";
-                      User = "ci-runner";
-                      Group = "ci-runner";
-                      WorkingDirectory = nightlyJob;
-                      ExecStart = script;
-                      TimeoutStartSec = "12h";
-                    };
-                  } (lib.optionalAttrs (job ? next) (chainTo job.next));
-                };
+              cloneScript =
+                name: repo: url: depth:
+                pkgs.writeShellScript name ''
+                  set -euo pipefail
+                  if [ ! -d ${lib.escapeShellArg "${repo}/.git"} ]; then
+                    git clone ${
+                      lib.optionalString (depth != null) "--depth=${toString depth} "
+                    }${lib.escapeShellArg url} ${lib.escapeShellArg repo}
+                  fi
+                '';
             in
             {
               boot.loader.systemd-boot.enable = true;
@@ -192,6 +101,7 @@
                 group = "ci-runner";
                 home = ciHome;
                 createHome = true;
+                linger = true;
               };
 
               security.sudo.wheelNeedsPassword = false;
@@ -211,6 +121,7 @@
               hardware.enableRedistributableFirmware = true;
 
               environment.systemPackages = with pkgs; [
+                ciRunner
                 git
                 vim
               ];
@@ -225,275 +136,233 @@
                 "d ${qaAssetsDir} 0750 ci-runner ci-runner -"
                 "d ${valgrindFuzzBuildDir} 0750 ci-runner ci-runner -"
                 "d ${workDir} 0750 ci-runner ci-runner -"
+                "d ${queueDir} 0750 ci-runner ci-runner -"
+                "d ${queueDir}/pending 0750 ci-runner ci-runner -"
+                "d ${queueDir}/running 0750 ci-runner ci-runner -"
+                "d ${queueDir}/done 0750 ci-runner ci-runner -"
+                "d ${queueDir}/failed 0750 ci-runner ci-runner -"
+                "d ${queueDir}/watch 0750 ci-runner ci-runner -"
               ];
 
-              systemd.services = {
-                ci-nightly-bitcoin-clone = lib.recursiveUpdate {
-                  description = "Clone Bitcoin Core source for nightly CI";
-                  wants = [ "network-online.target" ];
-                  after = [ "network-online.target" ];
-                  path = with pkgs; [
-                    coreutils
-                    git
-                  ];
-                  serviceConfig = {
-                    Type = "oneshot";
-                    User = "ci-runner";
-                    Group = "ci-runner";
-                    ExecStart = pkgs.writeShellScript "clone-ci-nightly-bitcoin" ''
-                      set -euo pipefail
-
-                      mkdir -p ${lib.escapeShellArg ciHome}
-                      if [ ! -d ${lib.escapeShellArg "${bitcoinRepo}/.git"} ]; then
-                        if [ -e ${lib.escapeShellArg bitcoinRepo} ]; then
-                          echo "${bitcoinRepo} exists but is not a Git checkout" >&2
-                          exit 1
-                        fi
-                        git clone --depth=1 ${lib.escapeShellArg bitcoinRepoUrl} ${lib.escapeShellArg bitcoinRepo}
-                      fi
-                    '';
-                    TimeoutStartSec = "30min";
-                  };
-                } (chainTo "ci-nightly-bitcoin-update.service");
-
-                ci-nightly-bitcoin-update = lib.recursiveUpdate {
-                  description = "Update Bitcoin Core source for nightly CI";
-                  wants = [ "network-online.target" ];
-                  after = [ "network-online.target" ];
-                  path = with pkgs; [
-                    git
-                  ];
-                  serviceConfig = {
-                    Type = "oneshot";
-                    User = "ci-runner";
-                    Group = "ci-runner";
-                    ExecStart = pkgs.writeShellScript "update-ci-nightly-bitcoin" ''
-                      set -euo pipefail
-
-                      git -C ${lib.escapeShellArg bitcoinRepo} clean -dfx
-                      git -C ${lib.escapeShellArg bitcoinRepo} reset --hard HEAD
-                      git -C ${lib.escapeShellArg bitcoinRepo} checkout master
-                      git -C ${lib.escapeShellArg bitcoinRepo} pull --ff-only --depth=1 origin master
-                      git -C ${lib.escapeShellArg bitcoinRepo} rev-parse HEAD
-                    '';
-                    TimeoutStartSec = "30min";
-                  };
-                } (chainTo "ci-nightly-bitcoin-gcc.service");
-
-                ci-bitcoin-guix-clone = {
-                  description = "Clone Bitcoin Core source for Guix CI";
-                  wants = [ "network-online.target" ];
-                  after = [ "network-online.target" ];
-                  path = with pkgs; [
-                    coreutils
-                    git
-                  ];
-                  serviceConfig = {
-                    Type = "oneshot";
-                    User = "ci-runner";
-                    Group = "ci-runner";
-                    ExecStart = pkgs.writeShellScript "clone-ci-bitcoin-guix" ''
-                      set -euo pipefail
-
-                      mkdir -p ${lib.escapeShellArg ciHome}
-                      if [ ! -d ${lib.escapeShellArg "${guixBitcoinRepo}/.git"} ]; then
-                        if [ -e ${lib.escapeShellArg guixBitcoinRepo} ]; then
-                          echo "${guixBitcoinRepo} exists but is not a Git checkout" >&2
-                          exit 1
-                        fi
-                        git clone ${lib.escapeShellArg bitcoinRepoUrl} ${lib.escapeShellArg guixBitcoinRepo}
-                      fi
-                    '';
-                    TimeoutStartSec = "30min";
-                  };
-                };
-
-                ci-bitcoin-guix-sdk = {
-                  description = "Download Bitcoin Core Guix macOS SDK";
-                  wants = [ "network-online.target" ];
-                  after = [ "network-online.target" ];
-                  unitConfig.ConditionPathExists = "!${guixSdkDir}/Xcode-26.1.1-17B100-extracted-SDK-with-libcxx-headers";
-                  path = with pkgs; [
-                    bash
-                    coreutils
-                    curl
-                    gnutar
-                  ];
-                  serviceConfig = {
-                    Type = "oneshot";
-                    User = "ci-runner";
-                    Group = "ci-runner";
-                    WorkingDirectory = guixSdkDir;
-                    ExecStart = pkgs.writeShellScript "download-ci-bitcoin-guix-sdk" ''
-                      set -euo pipefail
-
-                      curl -fL https://bitcoincore.org/depends-sources/sdks/Xcode-26.1.1-17B100-extracted-SDK-with-libcxx-headers.tar \
-                        | tar -xf - -C ${lib.escapeShellArg guixSdkDir}
-                    '';
-                    TimeoutStartSec = "30min";
-                  };
-                };
-
-                ci-bitcoin-guix = {
-                  description = "Bitcoin Core Guix continuous CI";
-                  wantedBy = [ "multi-user.target" ];
-                  wants = [
-                    "network-online.target"
-                    "ci-bitcoin-guix-clone.service"
-                    "ci-bitcoin-guix-sdk.service"
-                  ];
-                  after = [
-                    "network-online.target"
-                    "ci-bitcoin-guix-clone.service"
-                    "ci-bitcoin-guix-sdk.service"
-                    "guix-daemon.service"
-                  ];
-                  requires = [
-                    "ci-bitcoin-guix-clone.service"
-                    "ci-bitcoin-guix-sdk.service"
-                  ];
-                  path = with pkgs; [
-                    bash
-                    cmake
-                    coreutils
-                    git
-                    util-linux
-                  ];
-                  environment = {
-                    BASE_CACHE = guixCacheDir;
-                    BITCOIN_PATH = guixBitcoinRepo;
-                    BUILD_LOCK = buildLock;
-                    CTEST_SITE = ctestSite;
-                    SDK_PATH = guixSdkDir;
-                    SOURCES_PATH = guixSourcesDir;
-                  };
+              systemd.user.services = {
+                ci-runner = {
+                  description = "CI queue runner";
+                  wantedBy = [ "default.target" ];
+                  unitConfig.ConditionUser = "ci-runner";
                   serviceConfig = {
                     Type = "simple";
-                    User = "ci-runner";
-                    Group = "ci-runner";
-                    WorkingDirectory = guixBitcoinRepo;
-                    ExecStart = "${pkgs.cmake}/bin/ctest --verbose -S ${guixJob}/scripts/guix.cmake";
+                    ExecStart = "${ciRunner}/bin/ci-runner --queue-dir ${queueDir} run --config ${runnerConfig}";
+                    Restart = "always";
+                    RestartSec = "10";
+                  };
+                };
+
+                ci-nightly-bitcoin-enqueue = {
+                  description = "Enqueue Bitcoin Core nightly CI";
+                  unitConfig.ConditionUser = "ci-runner";
+                  serviceConfig = {
+                    Type = "oneshot";
+                    ExecStart = "${ciRunner}/bin/ci-runner --queue-dir ${queueDir} enqueue bitcoin-nightly --kind nightly --dedupe-key nightly:bitcoin --replace-pending";
+                  };
+                };
+
+                ci-watch-bitcoin-guix = {
+                  description = "Watch Bitcoin Core Guix CI";
+                  wantedBy = [ "default.target" ];
+                  requires = [ "ci-bitcoin-guix-clone.service" ];
+                  after = [ "ci-bitcoin-guix-clone.service" ];
+                  unitConfig.ConditionUser = "ci-runner";
+                  path = with pkgs; [ git ];
+                  serviceConfig = {
+                    Type = "simple";
+                    ExecStart = "${ciRunner}/bin/ci-runner --queue-dir ${queueDir} watch-git-ref bitcoin-guix --repo ${guixBitcoinRepo}";
                     Restart = "always";
                     RestartSec = "60";
                   };
                 };
 
-                ci-bitcoin-valgrind-fuzz-clone = {
-                  description = "Clone Bitcoin Core source for valgrind fuzz CI";
-                  wants = [ "network-online.target" ];
-                  after = [ "network-online.target" ];
-                  path = with pkgs; [
-                    coreutils
-                    git
-                  ];
+                ci-watch-bitcoin-valgrind-fuzz = {
+                  description = "Watch Bitcoin Core valgrind fuzz CI";
+                  wantedBy = [ "default.target" ];
+                  requires = [ "ci-bitcoin-valgrind-fuzz-clone.service" ];
+                  after = [ "ci-bitcoin-valgrind-fuzz-clone.service" ];
+                  unitConfig.ConditionUser = "ci-runner";
+                  path = with pkgs; [ git ];
+                  serviceConfig = {
+                    Type = "simple";
+                    ExecStart = "${ciRunner}/bin/ci-runner --queue-dir ${queueDir} watch-git-ref bitcoin-valgrind-fuzz --repo ${valgrindFuzzBitcoinRepo}";
+                    Restart = "always";
+                    RestartSec = "60";
+                  };
+                };
+
+                ci-bitcoin-nightly-clone = {
+                  description = "Clone Bitcoin Core source for nightly CI";
+                  unitConfig.ConditionUser = "ci-runner";
+                  path = with pkgs; [ git ];
                   serviceConfig = {
                     Type = "oneshot";
-                    User = "ci-runner";
-                    Group = "ci-runner";
-                    ExecStart = pkgs.writeShellScript "clone-ci-bitcoin-valgrind-fuzz" ''
-                      set -euo pipefail
+                    ExecStart = cloneScript "clone-ci-bitcoin-nightly" bitcoinRepo bitcoinRepoUrl 1;
+                    TimeoutStartSec = "30min";
+                  };
+                };
 
-                      mkdir -p ${lib.escapeShellArg ciHome}
-                      if [ ! -d ${lib.escapeShellArg "${valgrindFuzzBitcoinRepo}/.git"} ]; then
-                        if [ -e ${lib.escapeShellArg valgrindFuzzBitcoinRepo} ]; then
-                          echo "${valgrindFuzzBitcoinRepo} exists but is not a Git checkout" >&2
-                          exit 1
-                        fi
-                        git clone ${lib.escapeShellArg bitcoinRepoUrl} ${lib.escapeShellArg valgrindFuzzBitcoinRepo}
-                      fi
-                    '';
+                ci-bitcoin-guix-clone = {
+                  description = "Clone Bitcoin Core source for Guix CI";
+                  unitConfig.ConditionUser = "ci-runner";
+                  path = with pkgs; [ git ];
+                  serviceConfig = {
+                    Type = "oneshot";
+                    ExecStart = cloneScript "clone-ci-bitcoin-guix" guixBitcoinRepo bitcoinRepoUrl null;
+                    TimeoutStartSec = "30min";
+                  };
+                };
+
+                ci-bitcoin-valgrind-fuzz-clone = {
+                  description = "Clone Bitcoin Core source for valgrind fuzz CI";
+                  unitConfig.ConditionUser = "ci-runner";
+                  path = with pkgs; [ git ];
+                  serviceConfig = {
+                    Type = "oneshot";
+                    ExecStart =
+                      cloneScript "clone-ci-bitcoin-valgrind-fuzz" valgrindFuzzBitcoinRepo bitcoinRepoUrl
+                        null;
                     TimeoutStartSec = "30min";
                   };
                 };
 
                 ci-bitcoin-qa-assets-clone = {
                   description = "Clone Bitcoin Core qa-assets for valgrind fuzz CI";
-                  wants = [ "network-online.target" ];
-                  after = [ "network-online.target" ];
-                  path = with pkgs; [
-                    coreutils
-                    git
-                  ];
+                  unitConfig.ConditionUser = "ci-runner";
+                  path = with pkgs; [ git ];
                   serviceConfig = {
                     Type = "oneshot";
-                    User = "ci-runner";
-                    Group = "ci-runner";
-                    ExecStart = pkgs.writeShellScript "clone-ci-bitcoin-qa-assets" ''
-                      set -euo pipefail
-
-                      mkdir -p ${lib.escapeShellArg ciHome}
-                      if [ ! -d ${lib.escapeShellArg "${qaAssetsDir}/.git"} ]; then
-                        if [ -e ${lib.escapeShellArg qaAssetsDir} ]; then
-                          if [ -n "$(find ${lib.escapeShellArg qaAssetsDir} -mindepth 1 -maxdepth 1 -print -quit)" ]; then
-                            echo "${qaAssetsDir} exists but is not a Git checkout" >&2
-                            exit 1
-                          fi
-                        fi
-                        git clone ${lib.escapeShellArg qaAssetsRepoUrl} ${lib.escapeShellArg qaAssetsDir}
-                      fi
-                    '';
+                    ExecStart = cloneScript "clone-ci-bitcoin-qa-assets" qaAssetsDir qaAssetsRepoUrl null;
                     TimeoutStartSec = "30min";
                   };
                 };
 
-                ci-bitcoin-valgrind-fuzz = {
-                  description = "Bitcoin Core valgrind fuzz continuous CI";
-                  wantedBy = [ "multi-user.target" ];
-                  wants = [
-                    "network-online.target"
-                    "ci-bitcoin-valgrind-fuzz-clone.service"
-                    "ci-bitcoin-qa-assets-clone.service"
+                ci-bitcoin-guix-sdk = {
+                  description = "Download Bitcoin Core Guix macOS SDK";
+                  unitConfig = {
+                    ConditionUser = "ci-runner";
+                    ConditionPathExists = "!${guixSdkDir}/Xcode-26.1.1-17B100-extracted-SDK-with-libcxx-headers";
+                  };
+                  path = with pkgs; [
+                    curl
+                    gnutar
                   ];
-                  after = [
-                    "network-online.target"
-                    "ci-bitcoin-valgrind-fuzz-clone.service"
-                    "ci-bitcoin-qa-assets-clone.service"
-                  ];
-                  requires = [
-                    "ci-bitcoin-valgrind-fuzz-clone.service"
-                    "ci-bitcoin-qa-assets-clone.service"
-                  ];
+                  serviceConfig = {
+                    Type = "oneshot";
+                    WorkingDirectory = guixSdkDir;
+                    ExecStart = "${pkgs.bash}/bin/bash -c 'curl -fL https://bitcoincore.org/depends-sources/sdks/Xcode-26.1.1-17B100-extracted-SDK-with-libcxx-headers.tar | tar -xf - -C ${guixSdkDir}'";
+                    TimeoutStartSec = "30min";
+                  };
+                };
+
+                ci-job-bitcoin-nightly = {
+                  description = "Run Bitcoin Core nightly CI";
+                  requires = [ "ci-bitcoin-nightly-clone.service" ];
+                  after = [ "ci-bitcoin-nightly-clone.service" ];
+                  unitConfig.ConditionUser = "ci-runner";
                   path = with pkgs; [
                     bash
                     coreutils
                     git
                     nix
-                    util-linux
                   ];
                   environment = {
-                    BITCOIN_PATH = valgrindFuzzBitcoinRepo;
-                    BUILD_LOCK = buildLock;
+                    BITCOIN_REPO = bitcoinRepo;
+                    CCACHE_DIR = ccacheDir;
+                    CCACHE_MAXSIZE = ccacheMaxSize;
+                    CDASH_BUILD_NAME_PREFIX = cdashBuildNamePrefix;
+                    CTEST_SITE = ctestSite;
+                    WORK_DIR = workDir;
+                  };
+                  serviceConfig = {
+                    Type = "oneshot";
+                    WorkingDirectory = nightlyJob;
+                    ExecStart = "${pkgs.bash}/bin/bash ${nightlyJob}/scripts/run-nightly.sh";
+                    TimeoutStartSec = "12h";
+                  };
+                };
+
+                ci-job-bitcoin-guix = {
+                  description = "Run Bitcoin Core Guix CI";
+                  requires = [
+                    "ci-bitcoin-guix-clone.service"
+                    "ci-bitcoin-guix-sdk.service"
+                  ];
+                  after = [
+                    "ci-bitcoin-guix-clone.service"
+                    "ci-bitcoin-guix-sdk.service"
+                  ];
+                  unitConfig.ConditionUser = "ci-runner";
+                  path = with pkgs; [
+                    bash
+                    cmake
+                    coreutils
+                    findutils
+                    git
+                    guix
+                  ];
+                  environment = {
+                    BASE_CACHE = guixCacheDir;
+                    BITCOIN_REPO = guixBitcoinRepo;
+                    CTEST_SITE = ctestSite;
+                    GUIX_JOB_DIR = guixJob;
+                    SDK_PATH = guixSdkDir;
+                    SOURCES_PATH = guixSourcesDir;
+                  };
+                  serviceConfig = {
+                    Type = "oneshot";
+                    WorkingDirectory = guixBitcoinRepo;
+                    ExecStart = "${pkgs.bash}/bin/bash ${guixJob}/scripts/run-guix.sh";
+                    TimeoutStartSec = "12h";
+                  };
+                };
+
+                ci-job-bitcoin-valgrind-fuzz = {
+                  description = "Run Bitcoin Core valgrind fuzz CI";
+                  requires = [
+                    "ci-bitcoin-valgrind-fuzz-clone.service"
+                    "ci-bitcoin-qa-assets-clone.service"
+                  ];
+                  after = [
+                    "ci-bitcoin-valgrind-fuzz-clone.service"
+                    "ci-bitcoin-qa-assets-clone.service"
+                  ];
+                  unitConfig.ConditionUser = "ci-runner";
+                  path = with pkgs; [
+                    bash
+                    coreutils
+                    git
+                    nix
+                  ];
+                  environment = {
+                    BITCOIN_REPO = valgrindFuzzBitcoinRepo;
                     CTEST_SITE = ctestSite;
                     QA_ASSETS_PATH = qaAssetsDir;
                     VALGRIND_FUZZ_BUILD_DIR = valgrindFuzzBuildDir;
+                    VALGRIND_FUZZ_JOB_DIR = valgrindFuzzJob;
                   };
                   serviceConfig = {
-                    Type = "simple";
-                    User = "ci-runner";
-                    Group = "ci-runner";
+                    Type = "oneshot";
                     WorkingDirectory = valgrindFuzzJob;
-                    ExecStart = pkgs.writeShellScript "run-ci-bitcoin-valgrind-fuzz" ''
-                      set -euo pipefail
-
-                      nix develop ${lib.escapeShellArg "${valgrindFuzzJob}#gcc"} \
-                        --system x86_64-linux \
-                        --no-write-lock-file \
-                        --command ctest --verbose -S scripts/valgrind-fuzz.cmake
-                    '';
-                    Restart = "always";
-                    RestartSec = "60";
+                    ExecStart = "${pkgs.bash}/bin/bash ${valgrindFuzzJob}/scripts/run-valgrind-fuzz.sh";
+                    TimeoutStartSec = "12h";
                   };
                 };
-              }
-              // lib.listToAttrs (map mkJobService jobs);
+              };
 
-              systemd.timers.ci-nightly-bitcoin = {
+              systemd.user.timers.ci-nightly-bitcoin = {
                 description = "Run Bitcoin Core nightly CI";
                 wantedBy = [ "timers.target" ];
+                unitConfig.ConditionUser = "ci-runner";
                 timerConfig = {
                   OnCalendar = "*-*-* 00:00:00 UTC";
                   Persistent = true;
-                  Unit = "ci-nightly-bitcoin-clone.service";
+                  Unit = "ci-nightly-bitcoin-enqueue.service";
                 };
               };
 

@@ -12,54 +12,6 @@ set(CTEST_CMAKE_GENERATOR "Ninja")
 set(CTEST_GIT_COMMAND "git")
 set(QA_ASSETS_PATH "$ENV{QA_ASSETS_PATH}")
 
-if(NOT DEFINED VALGRIND_FUZZ_RUN_ONCE)
-    execute_process(
-        COMMAND git rev-parse HEAD
-        WORKING_DIRECTORY ${CTEST_SOURCE_DIRECTORY}
-        OUTPUT_VARIABLE OLD_HEAD
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        COMMAND_ERROR_IS_FATAL ANY
-    )
-
-    while(TRUE)
-        execute_process(
-            COMMAND git fetch origin
-            WORKING_DIRECTORY ${CTEST_SOURCE_DIRECTORY}
-            COMMAND_ERROR_IS_FATAL ANY
-        )
-        execute_process(
-            COMMAND git rev-parse origin/master
-            WORKING_DIRECTORY ${CTEST_SOURCE_DIRECTORY}
-            OUTPUT_VARIABLE NEW_HEAD
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            COMMAND_ERROR_IS_FATAL ANY
-        )
-        execute_process(
-            COMMAND git pull --ff-only
-            WORKING_DIRECTORY ${QA_ASSETS_PATH}
-            COMMAND_ERROR_IS_FATAL ANY
-        )
-
-        if(NOT OLD_HEAD STREQUAL NEW_HEAD)
-            break()
-        endif()
-        message("No new commits (at ${OLD_HEAD}), sleeping 60s")
-        execute_process(COMMAND sleep 60)
-    endwhile()
-
-    find_program(CTEST_COMMAND ctest REQUIRED)
-    execute_process(
-        COMMAND
-            flock "$ENV{BUILD_LOCK}"
-            "${CTEST_COMMAND}" --verbose -S "${CMAKE_CURRENT_LIST_FILE}"
-            "-DVALGRIND_FUZZ_RUN_ONCE=1"
-            "-DCTEST_SOURCE_DIRECTORY=${CTEST_SOURCE_DIRECTORY}"
-            "-DCTEST_SITE=${CTEST_SITE}"
-        COMMAND_ERROR_IS_FATAL ANY
-    )
-    return()
-endif()
-
 execute_process(
     COMMAND git pull --ff-only
     WORKING_DIRECTORY ${QA_ASSETS_PATH}

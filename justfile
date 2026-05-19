@@ -37,31 +37,41 @@ sync-rebuild type=default_host host=default_host:
     just sync {{host}}
     just rebuild {{type}} {{host}}
 
-# Follow all Bitcoin Core nightly service logs
+# Follow all CI user service logs
 [group('live')]
 logs host=default_host:
-    ssh {{host}} "journalctl -f -o short-iso \
-        -u ci-nightly-bitcoin-clone.service \
-        -u ci-nightly-bitcoin-update.service \
-        -u ci-nightly-bitcoin-gcc.service \
-        -u ci-nightly-bitcoin-gcc-stdlib-debug.service \
-        -u ci-nightly-bitcoin-libcxx-hardened.service \
-        -u ci-nightly-bitcoin-gcc-instrumented.service \
-        -u ci-bitcoin-guix.service \
-        -u ci-bitcoin-valgrind-fuzz.service"
+    ssh {{host}} 'uid=$(id -u ci-runner); sudo -u ci-runner env XDG_RUNTIME_DIR=/run/user/$uid journalctl --user -f -o short-iso \
+        -u ci-runner.service \
+        -u ci-nightly-bitcoin-enqueue.service \
+        -u ci-watch-bitcoin-guix.service \
+        -u ci-watch-bitcoin-valgrind-fuzz.service \
+        -u ci-job-bitcoin-nightly.service \
+        -u ci-job-bitcoin-guix.service \
+        -u ci-job-bitcoin-valgrind-fuzz.service'
 
-# Start the full Bitcoin Core nightly chain
+# Enqueue the full Bitcoin Core nightly job
 [group('live')]
 nightly-start host=default_host:
-    ssh {{host}} "sudo systemctl start ci-nightly-bitcoin-clone.service"
+    ssh {{host}} 'uid=$(id -u ci-runner); sudo -u ci-runner env XDG_RUNTIME_DIR=/run/user/$uid systemctl --user start ci-nightly-bitcoin-enqueue.service'
 
-# Show status for all Bitcoin Core nightly services
+# Show status for CI user services
+[group('live')]
+status host=default_host:
+    ssh {{host}} 'uid=$(id -u ci-runner); sudo -u ci-runner env XDG_RUNTIME_DIR=/run/user/$uid systemctl --user --no-pager --full status \
+        ci-runner.service \
+        ci-nightly-bitcoin-enqueue.service \
+        ci-watch-bitcoin-guix.service \
+        ci-watch-bitcoin-valgrind-fuzz.service \
+        ci-job-bitcoin-nightly.service \
+        ci-job-bitcoin-guix.service \
+        ci-job-bitcoin-valgrind-fuzz.service'
+
+# Backward-compatible alias for the old nightly status helper
 [group('live')]
 nightly-status host=default_host:
-    ssh {{host}} "systemctl --no-pager --full status \
-        ci-nightly-bitcoin-clone.service \
-        ci-nightly-bitcoin-update.service \
-        ci-nightly-bitcoin-gcc.service \
-        ci-nightly-bitcoin-gcc-stdlib-debug.service \
-        ci-nightly-bitcoin-libcxx-hardened.service \
-        ci-nightly-bitcoin-gcc-instrumented.service"
+    just status {{host}}
+
+# Show queued CI jobs
+[group('live')]
+queue-status host=default_host:
+    ssh {{host}} "sudo -u ci-runner ci-runner status"

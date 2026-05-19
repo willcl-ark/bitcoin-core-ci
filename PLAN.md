@@ -4,8 +4,8 @@
 
 - This repo owns the NixOS machine configuration for the Beelink SER10 Max.
 - CI job definitions can live here while the setup is small and local.
-- Initial jobs are nightly CMake/CTest dashboard runs for Bitcoin Core.
-- Bitcoin Core nightly job files live under `jobs/bitcoin-core-nightly`.
+- Initial jobs are CMake/CTest dashboard runs for Bitcoin Core.
+- Bitcoin Core job files live under `jobs/bitcoin-core-*`.
 - The first implementation should favor debuggability over isolation.
 
 ## Initial Direction
@@ -15,23 +15,24 @@ Start with a single NixOS configuration file that defines:
 - the base machine setup;
 - a dedicated CI user;
 - shared build/cache directories;
-- one systemd service per nightly job;
-- one systemd timer that starts the first job in the sequence.
+- a small filesystem-backed queue runner;
+- one systemd user service per runnable job;
+- producer services/timers that enqueue work.
 
 Run jobs on the host at first, not in VMs. Host execution is easier to inspect,
 shares `ccache` naturally, keeps CTest/CDash behavior close to local developer
 runs, and avoids deciding VM boundaries before there is operational experience.
 
-Use systemd chaining for sequential execution:
+Use a local queue for sequential execution:
 
-- timer starts `ci-nightly-a.service` at 00:00;
-- `ci-nightly-a.service` uses `OnSuccess=` and `OnFailure=` to start
-  `ci-nightly-b.service`;
-- each job starts the next job regardless of success or failure;
-- job failure state remains visible in `systemctl status` and the journal.
+- timer starts `ci-nightly-bitcoin-enqueue.service` at 00:00 UTC;
+- continuous watcher services enqueue latest-only jobs when `origin/master`
+  advances;
+- `ci-runner.service` consumes one queued item at a time;
+- each queued item starts one configured systemd user job unit.
 
-This gives a simple "run all jobs in order" model without introducing a queue
-daemon, scheduler, or CI server.
+This gives a simple "one host job at a time" model without introducing an
+external CI server or database.
 
 ## Repository Layout
 
@@ -46,6 +47,8 @@ Initial layout:
 ├── PLAN.md
 ├── flake.nix
 ├── flake.lock
+├── runner/
+│   └── ci_runner.py
 └── jobs/
     └── bitcoin-core-nightly/
         ├── flake.nix
@@ -62,46 +65,52 @@ directory should know how to build and test its project.
 Each job should have:
 
 - a stable job name;
+- a queue item under `/var/lib/ci-runner/queue`;
 - a working directory under a CI-owned state path;
 - a source checkout path or fetch/update step;
 - a flake dev shell or package environment;
 - a `ctest -S ...` command;
-- logs in the systemd journal;
+- a systemd user job unit;
+- logs in the user journal;
 - any external submission credentials passed through systemd credentials or
   root-owned environment files, not committed to the repo.
 
-The service command should be close to:
+Job scripts should stay small wrappers around CTest, close to:
 
 ```sh
 nix develop /etc/ci/jobs/bitcoin-core-nightly#gcc \
   --command ctest -S scripts/build-unit-test.cmake -V
 ```
 
-The first Beelink job chain uses the native `x86_64-linux` `gcc` and `libcxx`
+The Beelink nightly job uses the native `x86_64-linux` `gcc` and `libcxx`
 shells from `bitcoin-core-nightly`, with per-job CMake presets for the debug
 libstdc++ and hardened libc++ variants. The final GCC job enables CTest build
-instrumentation for CDash timing data.
+instrumentation for CDash timing data. The nightly variants run sequentially
+inside one queued job.
 
 CI-owned checkouts live under `/var/lib/ci-runner`. Builds use throwaway Git
-worktrees under `/var/lib/ci-runner/work`, and each service removes its worktree
+worktrees under `/var/lib/ci-runner/work`, and each job removes its worktree
 on exit. Jobs share one system ccache at `/var/cache/ci-runner/ccache`, capped
 at 75G, with CMake compiler launchers set to `ccache` unless a job opts out for
 un-cached timing instrumentation.
+
+Continuous Guix and valgrind-fuzz jobs are best-effort latest-only jobs. Their
+watchers replace older pending queue items for the same job.
 
 ## Manual Operation
 
 Manual testing should use normal systemd commands:
 
 ```sh
-sudo systemctl start ci-nightly-bitcoin-gcc.service
-sudo systemctl status ci-nightly-bitcoin-gcc.service
-journalctl -u ci-nightly-bitcoin-gcc.service -f
+sudo -u ci-runner systemctl --user start ci-nightly-bitcoin-enqueue.service
+sudo -u ci-runner systemctl --user status ci-runner.service
+sudo -u ci-runner journalctl --user -u ci-runner.service -f
 ```
 
-To test the full sequence, start the clone service manually:
+To inspect queued work:
 
 ```sh
-sudo systemctl start ci-nightly-bitcoin-clone.service
+sudo -u ci-runner ci-runner status
 ```
 
 To inspect timers:
@@ -122,16 +131,17 @@ machines need to share them independently of machine configuration.
 
 ### How Should Jobs Run?
 
-Start with sequential systemd oneshot services. Avoid VMs until there is a
-specific need such as kernel variation, distribution variation, destructive
-tests, privilege isolation, or reproducing a platform that cannot be expressed
-cleanly in a Nix shell.
+Run one queued job at a time through `ci-runner.service`, which starts
+configured systemd user job units. Avoid VMs until there is a specific need
+such as kernel variation, distribution variation, destructive tests, privilege
+isolation, or reproducing a platform that cannot be expressed cleanly in a Nix
+shell.
 
 ### How Are Nightlies Tested Manually?
 
-Expose each job as a normal service and document the `systemctl start`,
-`systemctl status`, and `journalctl -u` workflow. This is also the operational
-debugging interface.
+Expose enqueue/status/log commands through `just`, while keeping the raw
+interfaces simple: `systemctl --user`, `journalctl --user`, and
+`ci-runner status` as the `ci-runner` user.
 
 ### How Minimal Should System Setup Be?
 
@@ -149,15 +159,15 @@ flake.
 
 ### What About Future VM Jobs?
 
-Keep the service boundary stable so a future job can replace `nix develop` with
-`nixos-rebuild build-vm`, `nix run`, `systemd-nspawn`, or a QEMU wrapper without
-changing the scheduler model.
+Keep the job-unit boundary stable so a future job can replace `nix develop`
+with `nixos-rebuild build-vm`, `nix run`, `systemd-nspawn`, or a QEMU wrapper
+without changing the scheduler model.
 
 ## Success Criteria For The First Implementation
 
 - A fresh NixOS install can use this repo as its system configuration.
 - At least one nightly job can be run manually through systemd.
-- A timer can start the nightly chain automatically.
+- A timer can enqueue the nightly job automatically.
 - Jobs share a persistent `ccache`.
 - Job dependencies come from the job flake, not ad hoc host packages.
 - Failures are visible through systemd state and the journal.
