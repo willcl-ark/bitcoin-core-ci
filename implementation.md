@@ -31,3 +31,6 @@
 - The Guix job installs a job-local `CTestCustom.cmake` into the checkout before
   `ctest_build()` so CDash ignores known Autoconf probe errors emitted inside
   the Guix container.
+- The Guix wrapper fetches and checks out the revision before invoking CTest, so
+  its dashboard script uses `CTEST_UPDATE_VERSION_ONLY` to report the current
+  revision without letting `ctest_update()` run a second network fetch.
