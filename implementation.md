@@ -26,3 +26,6 @@
 - Guix builds inherit their executable search path from `ci-runner.service`.
   Keep required host-side tools such as `make`, `getent`, and `sed` in that
   service path rather than in the job script.
+- The Guix job installs a job-local `CTestCustom.cmake` into the checkout before
+  `ctest_build()` so CDash ignores known Autoconf probe errors emitted inside
+  the Guix container.

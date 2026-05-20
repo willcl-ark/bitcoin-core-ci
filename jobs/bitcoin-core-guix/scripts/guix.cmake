@@ -13,12 +13,16 @@ set(GUIX_BUILD_LOG "${CTEST_BINARY_DIRECTORY}/guix-build.log")
 set(CTEST_BUILD_COMMAND "bash '${CMAKE_CURRENT_LIST_DIR}/run-guix-build.sh' '${CTEST_SOURCE_DIRECTORY}' '${GUIX_BUILD_LOG}'")
 
 set(CTEST_NOTES_FILES "${CMAKE_CURRENT_LIST_FILE}")
+set(guix_ctest_custom_file "${CMAKE_CURRENT_LIST_DIR}/CTestCustom.cmake")
+set(ctest_custom_file "${CTEST_BINARY_DIRECTORY}/CTestCustom.cmake")
 
 execute_process(
     COMMAND git clean -dfx --exclude=CTestConfig.cmake --exclude=CTestCustom.cmake
     WORKING_DIRECTORY ${CTEST_SOURCE_DIRECTORY}
     COMMAND_ERROR_IS_FATAL ANY
 )
+file(COPY_FILE "${guix_ctest_custom_file}" "${ctest_custom_file}")
+list(APPEND CTEST_NOTES_FILES "${ctest_custom_file}")
 
 ctest_start(Continuous)
 ctest_update()
