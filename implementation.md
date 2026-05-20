@@ -14,6 +14,8 @@
   configuration.
 - Continuous watchers use `git ls-remote`, so they do not mutate the checkouts
   used by running jobs.
+- NetworkManager inserts `1.1.1.1` and `8.8.8.8` before DHCP-provided DNS
+  servers so CI jobs do not depend on the router's resolver.
 
 ## Bitcoin Core Guix job
 

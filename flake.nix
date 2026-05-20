@@ -103,7 +103,13 @@
               boot.loader.efi.canTouchEfiVariables = true;
 
               networking.hostName = "beelink";
-              networking.networkmanager.enable = true;
+              networking.networkmanager = {
+                enable = true;
+                insertNameservers = [
+                  "1.1.1.1"
+                  "8.8.8.8"
+                ];
+              };
 
               time.timeZone = "Europe/London";
               i18n.defaultLocale = "en_GB.UTF-8";
