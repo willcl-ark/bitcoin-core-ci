@@ -1,6 +1,8 @@
 set shell := ["bash", "-uc"]
 
 default_host := 'beelink'
+bench_preview_dir := '/tmp/bitcoin-bench-dashboard'
+bench_preview_port := '8097'
 
 [private]
 default:
@@ -69,3 +71,14 @@ nightly-status host=default_host:
 [group('live')]
 queue-status host=default_host:
     ssh {{host}} "sudo -u ci-runner ci-runner status"
+
+# Copy the live benchmark DB, regenerate the dashboard, and serve it locally
+[group('test')]
+bench-site-preview host=default_host port=bench_preview_port:
+    mkdir -p {{bench_preview_dir}}
+    scp {{host}}:/var/lib/ci-runner/benchmarks/bitcoin-core/benchmarks.sqlite {{bench_preview_dir}}/benchmarks.sqlite
+    jobs/bitcoin-core-bench/scripts/generate-site.py \
+        --db {{bench_preview_dir}}/benchmarks.sqlite \
+        --output-dir {{bench_preview_dir}}/site \
+        --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    python3 -m http.server {{port}} --bind 127.0.0.1 --directory {{bench_preview_dir}}/site
