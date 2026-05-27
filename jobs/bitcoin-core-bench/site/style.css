@@ -161,11 +161,15 @@ input[type="number"] {
   font: inherit;
 }
 
-#chart, #heatmap, .series-panel {
+#chart, .series-panel {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
+}
+
+.heatmap-section {
+  margin-top: 28px;
 }
 
 .chart-shell {
@@ -253,9 +257,9 @@ input[type="number"] {
 }
 
 #heatmap {
-  height: 520px;
+  width: 100%;
   overflow: auto;
-  padding: 12px;
+  padding: 12px 0 0;
 }
 
 #chart-canvas {
@@ -315,7 +319,7 @@ input[type="number"] {
 
 .heatmap-empty {
   display: grid;
-  height: 100%;
+  min-height: 180px;
   place-items: center;
   color: var(--muted);
   font-size: 14px;
