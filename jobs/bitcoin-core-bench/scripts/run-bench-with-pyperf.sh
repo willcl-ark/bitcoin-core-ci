@@ -30,11 +30,18 @@ reset_pyperf() {
     python3 -m pyperf system reset >"${pyperf_prefix}-reset.log" 2>&1
     echo "$?" >"${pyperf_prefix}-reset.status"
     python3 -m pyperf system show >"${pyperf_prefix}-after.log" 2>&1
+    echo "$?" >"${pyperf_prefix}-after.status"
 }
 trap reset_pyperf EXIT
 
 echo "writing benchmark system logs to ${pyperf_prefix}-*.log"
-python3 -m pyperf system show >"${pyperf_prefix}-before.log" 2>&1
+if python3 -m pyperf system show >"${pyperf_prefix}-before.log" 2>&1; then
+    echo 0 >"${pyperf_prefix}-before.status"
+else
+    show_status=$?
+    echo "${show_status}" >"${pyperf_prefix}-before.status"
+    echo "pyperf system show exited with ${show_status}; see ${pyperf_prefix}-before.log" >&2
+fi
 if python3 -m pyperf system tune --affinity="${BENCHMARK_CPU_AFFINITY}" >"${pyperf_prefix}-tune.log" 2>&1; then
     echo 0 >"${pyperf_prefix}-tune.status"
 else
