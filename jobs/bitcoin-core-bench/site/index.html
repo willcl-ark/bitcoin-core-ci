@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bitcoin Core Benchmarks</title>
+  <script src="https://cdn.plot.ly/plotly-3.0.1.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div>
+        <h1>Bitcoin Core Benchmarks</h1>
+        <div class="meta" id="updated"></div>
+      </div>
+      <div class="meta" id="run-count"></div>
+    </div>
+  </header>
+  <main>
+    <section class="overview-grid">
+      <div class="panel">
+        <h2>Largest Changes</h2>
+        <div class="note" id="overview-note"></div>
+        <div class="trend-grid">
+          <button class="trend-card" id="trend-down" type="button">
+            <div class="trend-label">Biggest Speedup</div>
+            <div class="trend-name">n/a</div>
+            <div class="trend-value delta-good">n/a</div>
+            <div class="trend-detail"></div>
+          </button>
+          <button class="trend-card" id="trend-up" type="button">
+            <div class="trend-label">Biggest Slowdown</div>
+            <div class="trend-name">n/a</div>
+            <div class="trend-value delta-bad">n/a</div>
+            <div class="trend-detail"></div>
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Benchmark</th>
+                <th>Latest</th>
+                <th>Prev</th>
+                <th>Delta</th>
+                <th>Trend</th>
+              </tr>
+            </thead>
+            <tbody id="overview-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Run Heatmap</h2>
+        <div class="note" id="heatmap-note"></div>
+        <div id="heatmap"></div>
+      </div>
+    </section>
+
+    <div class="toolbar">
+      <label>
+        Benchmark
+        <select id="benchmark"></select>
+      </label>
+      <label>
+        Metric
+        <select id="metric">
+          <option value="median_elapsed">Median elapsed</option>
+          <option value="min_elapsed">Minimum elapsed</option>
+          <option value="max_elapsed">Maximum elapsed</option>
+          <option value="total_elapsed">Total elapsed</option>
+        </select>
+      </label>
+      <label>
+        Recent runs
+        <select id="limit">
+          <option value="30">30</option>
+          <option value="90" selected>90</option>
+          <option value="180">180</option>
+          <option value="365">365</option>
+          <option value="0">All</option>
+        </select>
+      </label>
+    </div>
+    <div id="chart"></div>
+    <div class="summary" id="summary"></div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
