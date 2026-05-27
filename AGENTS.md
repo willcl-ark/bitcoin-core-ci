@@ -12,8 +12,8 @@ CMake/CTest jobs, starting with Bitcoin Core dashboard builds.
 
 - Think before coding and state assumptions when they affect the design.
 - Keep changes minimal and surgical.
-- Prefer one clear NixOS configuration file until repeated structure justifies
-  modules.
+- Keep shared CI runner infrastructure in the root NixOS configuration and
+  job-specific systemd/tmpfiles/queue wiring in `jobs/*/module.nix`.
 - Keep generated machine hardware configuration in a separate
   `machines/<name>/hardware-configuration.nix` file.
 - Keep machine setup small; put build tools and project dependencies in job

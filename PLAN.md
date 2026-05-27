@@ -36,10 +36,11 @@ external CI server or database.
 
 ## Repository Layout
 
-Keep one giant Nix file initially. Split modules only when the file has clear
-repeated shapes or unrelated concerns.
+Keep shared machine and runner infrastructure in the root NixOS configuration.
+Put job-specific queue entries, systemd units, timers, watchers, tmpfiles, and
+state paths in `jobs/*/module.nix`.
 
-Initial layout:
+Current layout:
 
 ```text
 .
@@ -51,14 +52,16 @@ Initial layout:
 │   └── ci_runner.py
 └── jobs/
     └── bitcoin-core-nightly/
+        ├── module.nix
         ├── flake.nix
         ├── CMakeUserPresets.json
         └── scripts/
             └── build-unit-test.cmake
 ```
 
-The machine configuration should know how to schedule and run jobs. The job
-directory should know how to build and test its project.
+The root machine configuration should know how to run the queue and expose
+shared paths. The job directory should know how to register, schedule, and run
+its own job.
 
 ## Job Model
 
