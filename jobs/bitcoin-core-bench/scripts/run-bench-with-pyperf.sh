@@ -27,22 +27,22 @@ trap on_error ERR
 reset_pyperf() {
     set +e
     echo "resetting pyperf state"
-    "${PYPERF_PYTHON:-python3}" -m pyperf system reset >"${pyperf_prefix}-reset.log" 2>&1
+    python3 -m pyperf system reset >"${pyperf_prefix}-reset.log" 2>&1
     echo "$?" >"${pyperf_prefix}-reset.status"
-    "${PYPERF_PYTHON:-python3}" -m pyperf system show >"${pyperf_prefix}-after.log" 2>&1
+    python3 -m pyperf system show >"${pyperf_prefix}-after.log" 2>&1
     echo "$?" >"${pyperf_prefix}-after.status"
 }
 trap reset_pyperf EXIT
 
 echo "writing benchmark system logs to ${pyperf_prefix}-*.log"
-if "${PYPERF_PYTHON:-python3}" -m pyperf system show >"${pyperf_prefix}-before.log" 2>&1; then
+if python3 -m pyperf system show >"${pyperf_prefix}-before.log" 2>&1; then
     echo 0 >"${pyperf_prefix}-before.status"
 else
     show_status=$?
     echo "${show_status}" >"${pyperf_prefix}-before.status"
     echo "pyperf system show exited with ${show_status}; see ${pyperf_prefix}-before.log" >&2
 fi
-if "${PYPERF_PYTHON:-python3}" -m pyperf system tune --affinity="${BENCHMARK_CPU_AFFINITY}" >"${pyperf_prefix}-tune.log" 2>&1; then
+if python3 -m pyperf system tune --affinity="${BENCHMARK_CPU_AFFINITY}" >"${pyperf_prefix}-tune.log" 2>&1; then
     echo 0 >"${pyperf_prefix}-tune.status"
 else
     tune_status=$?
@@ -50,8 +50,8 @@ else
     echo "pyperf system tune exited with ${tune_status}; see ${pyperf_prefix}-tune.log" >&2
 fi
 
-"${BENCHMARK_RUNUSER:-runuser}" -u ci-runner -- \
-    "${BENCHMARK_ENV:-env}" \
+runuser -u ci-runner -- \
+    env \
         BENCHMARK_CPU_AFFINITY="${BENCHMARK_CPU_AFFINITY}" \
         BENCHMARK_CPUSET_HOUSEKEEPING="${BENCHMARK_CPUSET_HOUSEKEEPING}" \
         BENCHMARK_CPUSET_SHIELD="${BENCHMARK_CPUSET_SHIELD}" \
@@ -69,4 +69,4 @@ fi
         CI_REVISION="${CI_REVISION:-}" \
         CTEST_SITE="${CTEST_SITE}" \
         WORK_DIR="${WORK_DIR}" \
-        "${BENCHMARK_BASH:-bash}" "${script_dir}/run-bench.sh"
+        bash "${script_dir}/run-bench.sh"

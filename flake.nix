@@ -55,6 +55,7 @@
               benchmarkRoot = "${ciHome}/benchmarks/bitcoin-core";
               benchmarkArtifactRoot = "${benchmarkRoot}/artifacts";
               benchmarkDb = "${benchmarkRoot}/benchmarks.sqlite";
+              benchmarkRunEnv = "${benchmarkRoot}/run.env";
               benchmarkSiteDir = "${benchmarkRoot}/site";
               benchmarkCpuAffinity = "2,3";
               benchmarkCpusetShield = "2,3,14,15";
@@ -67,6 +68,26 @@
               valgrindFuzzBuildDir = "${ciHome}/valgrind-fuzz-build";
               workDir = "${ciHome}/work";
               queueDir = "${ciHome}/queue";
+              benchmarkQueueRunner = pkgs.writeShellApplication {
+                name = "ci-start-bitcoin-bench";
+                runtimeInputs = [
+                  pkgs.coreutils
+                ];
+                text = ''
+                  set -euo pipefail
+
+                  tmp="${benchmarkRunEnv}.$$"
+                  umask 077
+                  {
+                    printf 'CI_JOB_ID=%q\n' "''${CI_JOB_ID}"
+                    printf 'CI_JOB_KIND=%q\n' "''${CI_JOB_KIND:-continuous}"
+                    printf 'CI_REVISION=%q\n' "''${CI_REVISION:-}"
+                  } > "$tmp"
+                  mv "$tmp" "${benchmarkRunEnv}"
+
+                  /run/wrappers/bin/sudo ${pkgs.systemd}/bin/systemctl start ci-bitcoin-bench-run.service
+                '';
+              };
               runnerConfig = pkgs.writeText "ci-runner-jobs.json" (
                 builtins.toJSON {
                   jobs = {
@@ -88,31 +109,9 @@
                     };
                     bitcoin-bench = {
                       command = [
-                        "/run/wrappers/bin/sudo"
-                        "-E"
-                        "${benchJob}/scripts/run-bench-with-pyperf.sh"
+                        "${benchmarkQueueRunner}/bin/ci-start-bitcoin-bench"
                       ];
                       cwd = "${benchJob}";
-                      env = {
-                        BENCHMARK_ARTIFACT_ROOT = benchmarkArtifactRoot;
-                        BENCHMARK_BASH = "${pkgs.bash}/bin/bash";
-                        BENCHMARK_CPU_AFFINITY = benchmarkCpuAffinity;
-                        BENCHMARK_CPUSET_HOUSEKEEPING = benchmarkCpusetHousekeeping;
-                        BENCHMARK_CPUSET_SHIELD = benchmarkCpusetShield;
-                        BENCHMARK_DB = benchmarkDb;
-                        BENCHMARK_ENV = "${pkgs.coreutils}/bin/env";
-                        BENCHMARK_MIN_TIME_MS = "1000";
-                        BENCHMARK_RUNUSER = "${pkgs.util-linux}/bin/runuser";
-                        BENCHMARK_SITE_DIR = benchmarkSiteDir;
-                        BITCOIN_REPO = benchBitcoinRepo;
-                        BITCOIN_REPO_URL = bitcoinRepoUrl;
-                        CCACHE_DIR = ccacheDir;
-                        CCACHE_MAXSIZE = ccacheMaxSize;
-                        CDASH_BUILD_NAME_PREFIX = cdashBuildNamePrefix;
-                        CTEST_SITE = ctestSite;
-                        PYPERF_PYTHON = "${pyperfPython}/bin/python3";
-                        WORK_DIR = workDir;
-                      };
                     };
                     bitcoin-guix = {
                       command = [
@@ -251,13 +250,6 @@
                       options = [ "NOPASSWD" ];
                     }
                     {
-                      command = "${benchJob}/scripts/run-bench-with-pyperf.sh";
-                      options = [
-                        "NOPASSWD"
-                        "SETENV"
-                      ];
-                    }
-                    {
                       command = "${benchJob}/scripts/run-with-cpuset-shield.sh";
                       options = [ "NOPASSWD" ];
                     }
@@ -366,14 +358,11 @@
                   ];
                   environment = {
                     BENCHMARK_ARTIFACT_ROOT = benchmarkArtifactRoot;
-                    BENCHMARK_BASH = "${pkgs.bash}/bin/bash";
                     BENCHMARK_CPU_AFFINITY = benchmarkCpuAffinity;
                     BENCHMARK_CPUSET_HOUSEKEEPING = benchmarkCpusetHousekeeping;
                     BENCHMARK_CPUSET_SHIELD = benchmarkCpusetShield;
                     BENCHMARK_DB = benchmarkDb;
-                    BENCHMARK_ENV = "${pkgs.coreutils}/bin/env";
                     BENCHMARK_MIN_TIME_MS = "1000";
-                    BENCHMARK_RUNUSER = "${pkgs.util-linux}/bin/runuser";
                     BENCHMARK_SITE_DIR = benchmarkSiteDir;
                     BITCOIN_REPO = benchBitcoinRepo;
                     BITCOIN_REPO_URL = bitcoinRepoUrl;
@@ -382,16 +371,17 @@
                     CDASH_BUILD_NAME_PREFIX = cdashBuildNamePrefix;
                     CI_JOB_KIND = "continuous";
                     CTEST_SITE = ctestSite;
-                    PYPERF_PYTHON = "${pyperfPython}/bin/python3";
                     WORK_DIR = workDir;
                   };
                   serviceConfig = {
                     Type = "oneshot";
                     User = "root";
                     Group = "root";
+                    EnvironmentFile = "-${benchmarkRunEnv}";
                     WorkingDirectory = benchJob;
                     ExecStartPre = "+${initializeBenchmarkState}";
                     ExecStart = "${pkgs.bash}/bin/bash ${benchJob}/scripts/run-bench-with-pyperf.sh";
+                    ExecStopPost = "+${pkgs.coreutils}/bin/rm -f ${benchmarkRunEnv}";
                   };
                 };
 
