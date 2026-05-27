@@ -50,6 +50,13 @@ function byBenchmark(metric) {
   return groups;
 }
 
+function filterGroups(groups, filterText) {
+  const needle = filterText.trim().toLowerCase();
+  const entries = Array.from(groups.entries());
+  if (!needle) return entries;
+  return entries.filter(([name]) => name.toLowerCase().includes(needle));
+}
+
 function sparkline(rows, metric) {
   const values = rows.map((row) => row[metric]).filter((value) => value !== null && value !== undefined);
   if (values.length < 2) return "";
@@ -250,12 +257,14 @@ function renderSeriesPanel(datasets, showPanel) {
 
 function render() {
   const benchmark = document.getElementById("benchmark").value;
+  const filterText = document.getElementById("benchmark-filter").value;
   const metric = document.getElementById("metric").value;
   const limit = Number(document.getElementById("limit").value);
   const axisScale = document.getElementById("axis-scale").value;
   const groups = byBenchmark(metric);
-  const selectedGroups = benchmark === "__all__"
-    ? Array.from(groups.entries())
+  const filteredGroups = filterGroups(groups, filterText);
+  const selectedGroups = benchmark === "__all__" || filterText.trim()
+    ? filteredGroups
     : [[benchmark, groups.get(benchmark) || []]];
   const selectedRows = [];
   const datasets = selectedGroups.map(([name, groupRows], index) => {
@@ -324,8 +333,11 @@ function render() {
     .map(([name, groupRows]) => ({ name, latest: groupRows.at(-1) }))
     .filter((item) => item.latest);
   const latest = latestRows.length === 1 ? latestRows[0].latest : null;
+  const filterSummary = filterText.trim() ? ` matching "${filterText.trim()}"` : "";
   document.getElementById("summary").textContent = benchmark === "__all__"
-    ? `Showing ${datasets.length} benchmark series${axisScale === "logarithmic" ? " on a log axis" : ""}.`
+    ? `Showing ${datasets.length} benchmark series${filterSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
+    : filterText.trim()
+    ? `Showing ${datasets.length} benchmark series${filterSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
     : latest
     ? `${benchmark}: latest ${formatSeconds(latest[metric])} at ${latest.run_time} (${latest.commit_hash.slice(0, 12)})`
     : "No results for this selection.";
@@ -345,6 +357,10 @@ async function main() {
   for (const id of ["benchmark", "metric", "limit", "axis-scale"]) {
     document.getElementById(id).addEventListener("change", render);
   }
+  document.getElementById("benchmark-filter").addEventListener("input", () => {
+    document.getElementById("benchmark").value = "__all__";
+    render();
+  });
 }
 
 main().catch((error) => { document.getElementById("summary").textContent = error.message; });
