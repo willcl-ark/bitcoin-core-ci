@@ -14,6 +14,7 @@ function unique(values) { return Array.from(new Set(values)).sort((a, b) => a.lo
 function pct(value) { return value === null || value === undefined || Number.isNaN(value) ? "n/a" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`; }
 function pctDelta(latest, base) { return base ? ((latest - base) / base) * 100 : null; }
 function cssColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function chartTime(row) { return row.commit_time || row.run_time; }
 
 function seriesColor(index) {
   const colors = [
@@ -46,7 +47,7 @@ function byBenchmark(metric) {
     if (!groups.has(row.benchmark)) groups.set(row.benchmark, []);
     groups.get(row.benchmark).push(row);
   }
-  for (const rows of groups.values()) rows.sort((a, b) => a.run_time.localeCompare(b.run_time));
+  for (const rows of groups.values()) rows.sort((a, b) => chartTime(a).localeCompare(chartTime(b)));
   return groups;
 }
 
@@ -160,7 +161,7 @@ function renderOverview() {
 
 function renderHeatmap() {
   const metric = document.getElementById("metric").value;
-  const runTimes = unique(state.rows.map((row) => row.run_time));
+  const runTimes = unique(state.rows.map((row) => chartTime(row)));
   const groups = byBenchmark(metric);
   const benchmarks = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
   const enoughRuns = runTimes.length >= minTrendRuns;
@@ -178,7 +179,7 @@ function renderHeatmap() {
 
   const z = benchmarks.map((benchmark) => {
     const rows = groups.get(benchmark);
-    const byTime = new Map(rows.map((row) => [row.run_time, row[metric]]));
+    const byTime = new Map(rows.map((row) => [chartTime(row), row[metric]]));
     const values = [];
     return runTimes.map((runTime) => {
       const value = byTime.get(runTime);
@@ -276,10 +277,11 @@ function render() {
     return {
       label: name,
       data: rows.map((row) => ({
-        x: row.run_time,
+        x: chartTime(row),
         y: row[metric],
         commit: row.commit_hash.slice(0, 12),
         jobId: row.job_id,
+        runTime: row.run_time,
       })),
       borderColor: color,
       backgroundColor: color,
@@ -289,7 +291,7 @@ function render() {
       tension: 0.22,
     };
   }).filter((dataset) => dataset.data.length > 0);
-  const labels = unique(selectedRows.map((row) => row.run_time));
+  const labels = unique(selectedRows.map((row) => chartTime(row)));
 
   if (chart) chart.destroy();
   chart = new Chart(document.getElementById("chart-canvas"), {
@@ -307,14 +309,14 @@ function render() {
           callbacks: {
             title: (items) => items[0]?.raw?.x || "",
             label: (item) => `${item.dataset.label}: ${formatSeconds(item.raw.y)}`,
-            afterLabel: (item) => `${item.raw.commit}\n${item.raw.jobId}`,
+            afterLabel: (item) => `${item.raw.commit}\n${item.raw.runTime}\n${item.raw.jobId}`,
           },
         },
       },
       scales: {
         x: {
           type: "category",
-          title: { display: true, text: "Run time", color: cssColor("--muted") },
+          title: { display: true, text: "Commit time", color: cssColor("--muted") },
           grid: { color: cssColor("--line") },
           ticks: { color: cssColor("--muted"), maxRotation: 40, autoSkip: true },
         },
@@ -339,7 +341,7 @@ function render() {
     : filterText.trim()
     ? `Showing ${datasets.length} benchmark series${filterSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
     : latest
-    ? `${benchmark}: latest ${formatSeconds(latest[metric])} at ${latest.run_time} (${latest.commit_hash.slice(0, 12)})`
+    ? `${benchmark}: latest ${formatSeconds(latest[metric])} at ${chartTime(latest)} (${latest.commit_hash.slice(0, 12)})`
     : "No results for this selection.";
   renderOverview();
   renderHeatmap();

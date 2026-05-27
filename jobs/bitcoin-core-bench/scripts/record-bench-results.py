@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY,
     job_id TEXT NOT NULL UNIQUE,
     commit_hash TEXT NOT NULL,
+    commit_time TEXT NOT NULL,
     run_time TEXT NOT NULL,
     host TEXT NOT NULL,
     compiler TEXT NOT NULL,
@@ -57,6 +58,7 @@ def write_metadata(args):
             "artifact_dir": str(args.artifact_dir),
             "command": args.command,
             "commit": args.commit,
+            "commit_time": args.commit_time,
             "compiler": args.compiler,
             "cpu_affinity": args.cpu_affinity,
             "cpuset_housekeeping": args.cpuset_housekeeping,
@@ -114,16 +116,28 @@ def result_rows(value):
     return []
 
 
-def insert_run(conn, metadata):
+def ensure_schema(conn):
     conn.executescript(SCHEMA)
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(runs)")
+    }
+    if "commit_time" not in columns:
+        conn.execute("ALTER TABLE runs ADD COLUMN commit_time TEXT")
+        conn.execute("UPDATE runs SET commit_time = run_time WHERE commit_time IS NULL")
+
+
+def insert_run(conn, metadata):
+    ensure_schema(conn)
+    commit_time = metadata.get("commit_time", metadata["run_time"])
     cursor = conn.execute(
         """
         INSERT INTO runs (
-            job_id, commit_hash, run_time, host, compiler, preset,
+            job_id, commit_hash, commit_time, run_time, host, compiler, preset,
             min_time_ms, artifact_dir, command
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(job_id) DO UPDATE SET
             commit_hash = excluded.commit_hash,
+            commit_time = excluded.commit_time,
             run_time = excluded.run_time,
             host = excluded.host,
             compiler = excluded.compiler,
@@ -136,6 +150,7 @@ def insert_run(conn, metadata):
         (
             metadata["job_id"],
             metadata["commit"],
+            commit_time,
             metadata["run_time"],
             metadata["host"],
             metadata["compiler"],
@@ -233,6 +248,7 @@ def main():
     metadata_parser.add_argument("--metadata", type=pathlib.Path, required=True)
     metadata_parser.add_argument("--job-id", required=True)
     metadata_parser.add_argument("--commit", required=True)
+    metadata_parser.add_argument("--commit-time", required=True)
     metadata_parser.add_argument("--run-time", required=True)
     metadata_parser.add_argument("--host", required=True)
     metadata_parser.add_argument("--compiler", required=True)

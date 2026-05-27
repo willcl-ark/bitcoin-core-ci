@@ -33,6 +33,7 @@ git -C "${BITCOIN_REPO}" reset --hard HEAD
 git -C "${BITCOIN_REPO}" clean -dfx
 commit=$(git -C "${BITCOIN_REPO}" rev-parse HEAD)
 commit_short=$(git -C "${BITCOIN_REPO}" rev-parse --short=12 HEAD)
+commit_time=$(date -u -d "@$(git -C "${BITCOIN_REPO}" show -s --format=%ct HEAD)" +"%Y-%m-%dT%H:%M:%SZ")
 run_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 safe_run_time=${run_time//:/}
 
@@ -69,6 +70,7 @@ python3 "${script_dir}/record-bench-results.py" write-metadata \
     --metadata "${metadata_file}" \
     --job-id "${CI_JOB_ID}" \
     --commit "${commit}" \
+    --commit-time "${commit_time}" \
     --run-time "${run_time}" \
     --host "${CTEST_SITE}" \
     --compiler gcc \

@@ -9,6 +9,15 @@ import sqlite3
 SITE_DIR = pathlib.Path(__file__).resolve().parents[1] / "site"
 
 
+def ensure_schema(conn):
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(runs)")
+    }
+    if "commit_time" not in columns:
+        conn.execute("ALTER TABLE runs ADD COLUMN commit_time TEXT")
+        conn.execute("UPDATE runs SET commit_time = run_time WHERE commit_time IS NULL")
+
+
 def query_rows(conn):
     return [
         dict(row)
@@ -17,6 +26,7 @@ def query_rows(conn):
             SELECT
                 runs.job_id,
                 runs.commit_hash,
+                runs.commit_time,
                 runs.run_time,
                 runs.host,
                 runs.compiler,
@@ -34,7 +44,7 @@ def query_rows(conn):
                 results.mdape_elapsed
             FROM results
             JOIN runs ON runs.id = results.run_id
-            ORDER BY results.benchmark, runs.run_time, results.row_index
+            ORDER BY results.benchmark, runs.commit_time, results.row_index
             """
         )
     ]
@@ -69,6 +79,7 @@ def generate(args):
     args.output_dir.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(args.db) as conn:
         conn.row_factory = sqlite3.Row
+        ensure_schema(conn)
         rows = query_rows(conn)
         runs = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
 
