@@ -16,7 +16,7 @@ else()
     set(ctest_configure_preset "bench")
 endif()
 
-include("${CMAKE_CURRENT_LIST_DIR}/../../bitcoin-core-nightly/scripts/set-cdash-build-name.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/set-cdash-build-name.cmake")
 
 set(bench_presets_file "${CMAKE_CURRENT_LIST_DIR}/../CMakeUserPresets.json")
 set(ctest_source_presets_file "${CTEST_SOURCE_DIRECTORY}/CMakeUserPresets.json")

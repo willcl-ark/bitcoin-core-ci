@@ -98,7 +98,7 @@ fi
 
 if [ -n "${BENCHMARK_CPUSET_SHIELD:-}" ]; then
     bench_command=(
-        sudo "${script_dir}/run-with-cpuset-shield.sh"
+        /run/wrappers/bin/sudo "${script_dir}/run-with-cpuset-shield.sh"
         "${BENCHMARK_CPUSET_SHIELD}"
         "${BENCHMARK_CPUSET_HOUSEKEEPING}"
         --
