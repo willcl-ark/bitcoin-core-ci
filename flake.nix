@@ -86,14 +86,33 @@
                         WORK_DIR = workDir;
                       };
                     };
-                    bitcoin-bench-nightly = {
+                    bitcoin-bench = {
                       command = [
-                        "${pkgs.sudo}/bin/sudo"
-                        "${pkgs.systemd}/bin/systemctl"
-                        "start"
-                        "ci-bitcoin-bench-run.service"
+                        "/run/wrappers/bin/sudo"
+                        "-E"
+                        "${benchJob}/scripts/run-bench-with-pyperf.sh"
                       ];
                       cwd = "${benchJob}";
+                      env = {
+                        BENCHMARK_ARTIFACT_ROOT = benchmarkArtifactRoot;
+                        BENCHMARK_BASH = "${pkgs.bash}/bin/bash";
+                        BENCHMARK_CPU_AFFINITY = benchmarkCpuAffinity;
+                        BENCHMARK_CPUSET_HOUSEKEEPING = benchmarkCpusetHousekeeping;
+                        BENCHMARK_CPUSET_SHIELD = benchmarkCpusetShield;
+                        BENCHMARK_DB = benchmarkDb;
+                        BENCHMARK_ENV = "${pkgs.coreutils}/bin/env";
+                        BENCHMARK_MIN_TIME_MS = "1000";
+                        BENCHMARK_RUNUSER = "${pkgs.util-linux}/bin/runuser";
+                        BENCHMARK_SITE_DIR = benchmarkSiteDir;
+                        BITCOIN_REPO = benchBitcoinRepo;
+                        BITCOIN_REPO_URL = bitcoinRepoUrl;
+                        CCACHE_DIR = ccacheDir;
+                        CCACHE_MAXSIZE = ccacheMaxSize;
+                        CDASH_BUILD_NAME_PREFIX = cdashBuildNamePrefix;
+                        CTEST_SITE = ctestSite;
+                        PYPERF_PYTHON = "${pyperfPython}/bin/python3";
+                        WORK_DIR = workDir;
+                      };
                     };
                     bitcoin-guix = {
                       command = [
@@ -232,6 +251,13 @@
                       options = [ "NOPASSWD" ];
                     }
                     {
+                      command = "${benchJob}/scripts/run-bench-with-pyperf.sh";
+                      options = [
+                        "NOPASSWD"
+                        "SETENV"
+                      ];
+                    }
+                    {
                       command = "${benchJob}/scripts/run-with-cpuset-shield.sh";
                       options = [ "NOPASSWD" ];
                     }
@@ -326,18 +352,8 @@
                   };
                 };
 
-                ci-nightly-bitcoin-bench-enqueue = {
-                  description = "Enqueue Bitcoin Core nightly benchmark CI";
-                  serviceConfig = {
-                    Type = "oneshot";
-                    User = "ci-runner";
-                    Group = "ci-runner";
-                    ExecStart = "${ciRunner}/bin/ci-runner --queue-dir ${queueDir} enqueue bitcoin-bench-nightly --kind nightly --dedupe-key nightly:bitcoin-bench --replace-pending";
-                  };
-                };
-
                 ci-bitcoin-bench-run = {
-                  description = "Run Bitcoin Core benchmark CI with pyperf tuning";
+                  description = "Run Bitcoin Core continuous benchmark CI with pyperf tuning";
                   path = [
                     pyperfPython
                     pkgs.bash
@@ -350,18 +366,23 @@
                   ];
                   environment = {
                     BENCHMARK_ARTIFACT_ROOT = benchmarkArtifactRoot;
+                    BENCHMARK_BASH = "${pkgs.bash}/bin/bash";
                     BENCHMARK_CPU_AFFINITY = benchmarkCpuAffinity;
                     BENCHMARK_CPUSET_HOUSEKEEPING = benchmarkCpusetHousekeeping;
                     BENCHMARK_CPUSET_SHIELD = benchmarkCpusetShield;
                     BENCHMARK_DB = benchmarkDb;
+                    BENCHMARK_ENV = "${pkgs.coreutils}/bin/env";
                     BENCHMARK_MIN_TIME_MS = "1000";
+                    BENCHMARK_RUNUSER = "${pkgs.util-linux}/bin/runuser";
                     BENCHMARK_SITE_DIR = benchmarkSiteDir;
                     BITCOIN_REPO = benchBitcoinRepo;
                     BITCOIN_REPO_URL = bitcoinRepoUrl;
                     CCACHE_DIR = ccacheDir;
                     CCACHE_MAXSIZE = ccacheMaxSize;
                     CDASH_BUILD_NAME_PREFIX = cdashBuildNamePrefix;
+                    CI_JOB_KIND = "continuous";
                     CTEST_SITE = ctestSite;
+                    PYPERF_PYTHON = "${pyperfPython}/bin/python3";
                     WORK_DIR = workDir;
                   };
                   serviceConfig = {
@@ -412,6 +433,22 @@
                   };
                 };
 
+                ci-watch-bitcoin-bench = {
+                  description = "Watch Bitcoin Core benchmark CI";
+                  wantedBy = [ "multi-user.target" ];
+                  wants = [ "network-online.target" ];
+                  after = [ "network-online.target" ];
+                  path = with pkgs; [ git ];
+                  serviceConfig = {
+                    Type = "simple";
+                    User = "ci-runner";
+                    Group = "ci-runner";
+                    ExecStart = "${ciRunner}/bin/ci-runner --queue-dir ${queueDir} watch-git-ref bitcoin-bench --remote ${bitcoinRepoUrl}";
+                    Restart = "always";
+                    RestartSec = "60";
+                  };
+                };
+
                 ci-watch-bitcoin-guix = {
                   description = "Watch Bitcoin Core Guix CI";
                   wantedBy = [ "multi-user.target" ];
@@ -452,16 +489,6 @@
                   OnCalendar = "*-*-* 00:00:00 UTC";
                   Persistent = true;
                   Unit = "ci-nightly-bitcoin-enqueue.service";
-                };
-              };
-
-              systemd.timers.ci-nightly-bitcoin-bench = {
-                description = "Run Bitcoin Core nightly benchmark CI";
-                wantedBy = [ "timers.target" ];
-                timerConfig = {
-                  OnCalendar = "*-*-* 03:00:00 UTC";
-                  Persistent = true;
-                  Unit = "ci-nightly-bitcoin-bench-enqueue.service";
                 };
               };
 

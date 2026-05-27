@@ -29,7 +29,7 @@ if(DEFINED ENV{BENCHMARK_METADATA} AND EXISTS "$ENV{BENCHMARK_METADATA}")
     list(APPEND CTEST_NOTES_FILES "$ENV{BENCHMARK_METADATA}")
 endif()
 
-ctest_start(Nightly)
+ctest_start(Continuous)
 ctest_update()
 ctest_submit(PARTS "Update")
 

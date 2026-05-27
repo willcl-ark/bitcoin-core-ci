@@ -94,10 +94,11 @@ on exit. Jobs share one system ccache at `/var/cache/ci-runner/ccache`, capped
 at 75G, with CMake compiler launchers set to `ccache` unless a job opts out for
 un-cached timing instrumentation.
 
-The Bitcoin Core benchmark nightly keeps raw `bench_bitcoin` output and its
-SQLite index on the machine under `/var/lib/ci-runner/benchmarks/bitcoin-core`.
-CDash receives configure/build/test status and notes, while benchmark analysis
-queries the local SQLite database during the initial test period.
+The Bitcoin Core benchmark job runs continuously when `origin/master` advances.
+It keeps raw `bench_bitcoin` output and its SQLite index on the machine under
+`/var/lib/ci-runner/benchmarks/bitcoin-core`. CDash receives configure/build
+status and notes, while benchmark analysis queries the local SQLite database
+during the initial test period.
 
 The benchmark job also generates a static lab dashboard from SQLite under
 `/var/lib/ci-runner/benchmarks/bitcoin-core/site`. A localhost-only systemd
@@ -111,8 +112,8 @@ slices to housekeeping CPUs for the benchmark command, runs `bench_bitcoin` in
 a transient cpuset on the preferred Zen 5 CPUs, and restores the system on
 exit.
 
-Continuous Guix and valgrind-fuzz jobs are best-effort latest-only jobs. Their
-watchers replace older pending queue items for the same job.
+Continuous Guix, valgrind-fuzz, and benchmark jobs are best-effort latest-only
+jobs. Their watchers replace older pending queue items for the same job.
 
 ## Manual Operation
 

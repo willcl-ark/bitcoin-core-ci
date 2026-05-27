@@ -27,22 +27,22 @@ trap on_error ERR
 reset_pyperf() {
     set +e
     echo "resetting pyperf state"
-    python3 -m pyperf system reset >"${pyperf_prefix}-reset.log" 2>&1
+    "${PYPERF_PYTHON:-python3}" -m pyperf system reset >"${pyperf_prefix}-reset.log" 2>&1
     echo "$?" >"${pyperf_prefix}-reset.status"
-    python3 -m pyperf system show >"${pyperf_prefix}-after.log" 2>&1
+    "${PYPERF_PYTHON:-python3}" -m pyperf system show >"${pyperf_prefix}-after.log" 2>&1
     echo "$?" >"${pyperf_prefix}-after.status"
 }
 trap reset_pyperf EXIT
 
 echo "writing benchmark system logs to ${pyperf_prefix}-*.log"
-if python3 -m pyperf system show >"${pyperf_prefix}-before.log" 2>&1; then
+if "${PYPERF_PYTHON:-python3}" -m pyperf system show >"${pyperf_prefix}-before.log" 2>&1; then
     echo 0 >"${pyperf_prefix}-before.status"
 else
     show_status=$?
     echo "${show_status}" >"${pyperf_prefix}-before.status"
     echo "pyperf system show exited with ${show_status}; see ${pyperf_prefix}-before.log" >&2
 fi
-if python3 -m pyperf system tune --affinity="${BENCHMARK_CPU_AFFINITY}" >"${pyperf_prefix}-tune.log" 2>&1; then
+if "${PYPERF_PYTHON:-python3}" -m pyperf system tune --affinity="${BENCHMARK_CPU_AFFINITY}" >"${pyperf_prefix}-tune.log" 2>&1; then
     echo 0 >"${pyperf_prefix}-tune.status"
 else
     tune_status=$?
@@ -50,8 +50,8 @@ else
     echo "pyperf system tune exited with ${tune_status}; see ${pyperf_prefix}-tune.log" >&2
 fi
 
-runuser -u ci-runner -- \
-    env \
+"${BENCHMARK_RUNUSER:-runuser}" -u ci-runner -- \
+    "${BENCHMARK_ENV:-env}" \
         BENCHMARK_CPU_AFFINITY="${BENCHMARK_CPU_AFFINITY}" \
         BENCHMARK_CPUSET_HOUSEKEEPING="${BENCHMARK_CPUSET_HOUSEKEEPING}" \
         BENCHMARK_CPUSET_SHIELD="${BENCHMARK_CPUSET_SHIELD}" \
@@ -65,8 +65,8 @@ runuser -u ci-runner -- \
         CCACHE_MAXSIZE="${CCACHE_MAXSIZE}" \
         CDASH_BUILD_NAME_PREFIX="${CDASH_BUILD_NAME_PREFIX}" \
         CI_JOB_ID="${run_id}" \
-        CI_JOB_KIND="${CI_JOB_KIND:-nightly}" \
+        CI_JOB_KIND="${CI_JOB_KIND:-continuous}" \
         CI_REVISION="${CI_REVISION:-}" \
         CTEST_SITE="${CTEST_SITE}" \
         WORK_DIR="${WORK_DIR}" \
-        bash "${script_dir}/run-bench.sh"
+        "${BENCHMARK_BASH:-bash}" "${script_dir}/run-bench.sh"
