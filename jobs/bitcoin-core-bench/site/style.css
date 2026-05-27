@@ -159,17 +159,76 @@ select {
   font: inherit;
 }
 
-#chart, #heatmap {
+#chart, #heatmap, .series-panel {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
 }
 
+.chart-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  gap: 12px;
+  align-items: stretch;
+}
+
 #chart {
   height: min(640px, calc(100vh - 250px));
   min-height: 420px;
   padding: 16px;
+}
+
+.series-panel {
+  height: min(640px, calc(100vh - 250px));
+  min-height: 420px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.series-panel[hidden] { display: none; }
+
+.series-list {
+  display: grid;
+  gap: 4px;
+}
+
+.series-button {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.series-button:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.series-button.series-hidden {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.series-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.series-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
 }
 
 #heatmap {
@@ -247,5 +306,7 @@ select {
   .overview-grid { grid-template-columns: 1fr; }
   .trend-grid { grid-template-columns: 1fr; }
   .toolbar { grid-template-columns: 1fr; }
+  .chart-shell { grid-template-columns: 1fr; }
   #chart { height: 520px; }
+  .series-panel { height: 220px; min-height: 0; }
 }

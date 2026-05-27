@@ -216,6 +216,38 @@ function renderHeatmap() {
   heatmap.replaceChildren(grid);
 }
 
+function renderSeriesPanel(datasets, showPanel) {
+  const panel = document.getElementById("series-panel");
+  panel.hidden = !showPanel;
+  if (!showPanel) {
+    panel.replaceChildren();
+    return;
+  }
+
+  const list = document.createElement("div");
+  list.className = "series-list";
+  datasets.forEach((dataset, index) => {
+    const button = document.createElement("button");
+    button.className = "series-button";
+    button.type = "button";
+    button.title = dataset.label;
+    const swatch = document.createElement("span");
+    swatch.className = "series-swatch";
+    swatch.style.background = dataset.borderColor;
+    const name = document.createElement("span");
+    name.className = "series-name";
+    name.textContent = dataset.label;
+    button.replaceChildren(swatch, name);
+    button.addEventListener("click", () => {
+      chart.setDatasetVisibility(index, !chart.isDatasetVisible(index));
+      chart.update();
+      button.classList.toggle("series-hidden", !chart.isDatasetVisible(index));
+    });
+    list.appendChild(button);
+  });
+  panel.replaceChildren(list);
+}
+
 function render() {
   const benchmark = document.getElementById("benchmark").value;
   const metric = document.getElementById("metric").value;
@@ -260,9 +292,7 @@ function render() {
       interaction: { mode: "nearest", intersect: false },
       plugins: {
         legend: {
-          display: benchmark === "__all__",
-          position: "right",
-          labels: { color: cssColor("--text"), boxWidth: 12, boxHeight: 12 },
+          display: false,
         },
         tooltip: {
           callbacks: {
@@ -288,6 +318,7 @@ function render() {
       },
     },
   });
+  renderSeriesPanel(datasets, benchmark === "__all__");
 
   const latestRows = selectedGroups
     .map(([name, groupRows]) => ({ name, latest: groupRows.at(-1) }))
