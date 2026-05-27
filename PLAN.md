@@ -94,6 +94,11 @@ on exit. Jobs share one system ccache at `/var/cache/ci-runner/ccache`, capped
 at 75G, with CMake compiler launchers set to `ccache` unless a job opts out for
 un-cached timing instrumentation.
 
+The Bitcoin Core benchmark nightly keeps raw `bench_bitcoin` output and its
+SQLite index on the machine under `/var/lib/ci-runner/benchmarks/bitcoin-core`.
+CDash receives configure/build/test status and notes, while benchmark analysis
+queries the local SQLite database during the initial test period.
+
 Continuous Guix and valgrind-fuzz jobs are best-effort latest-only jobs. Their
 watchers replace older pending queue items for the same job.
 

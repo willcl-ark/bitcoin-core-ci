@@ -1,0 +1,14 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "bench",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-bench",
+      "cacheVariables": {
+        "BUILD_BENCH": "ON",
+        "BUILD_GUI": "OFF"
+      }
+    }
+  ]
+}
