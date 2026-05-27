@@ -135,7 +135,7 @@ tr:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(180px, 240px) repeat(4, minmax(140px, 180px));
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 240px) repeat(6, minmax(120px, 170px));
   gap: 12px;
   align-items: end;
   margin-bottom: 20px;
@@ -150,7 +150,8 @@ label {
 }
 
 select,
-input[type="search"] {
+input[type="search"],
+input[type="number"] {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 6px;

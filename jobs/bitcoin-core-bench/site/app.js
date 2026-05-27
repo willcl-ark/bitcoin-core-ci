@@ -1,6 +1,6 @@
 const state = { rows: [], metadata: {} };
 const minTrendRuns = 7;
-const moverSeriesLimit = 20;
+const metric = "median_elapsed";
 const seriesFocus = { hovered: null, pinned: null };
 let chart;
 
@@ -122,13 +122,18 @@ function groupDelta(rows, metric) {
   return pctDelta(rows.at(-1)[metric], rows[0][metric]);
 }
 
-function largestMovers(groups, metric, limit, axisScale, useDisplayWindow) {
+function largestMovers(groups, limit, axisScale, useDisplayWindow, direction, count) {
   return groups
     .map(([name, rows]) => [name, useDisplayWindow ? chartRows(rows, metric, limit, axisScale) : rows])
     .map(([name, rows]) => ({ name, rows, delta: groupDelta(rows, metric) }))
     .filter((item) => item.delta !== null && item.delta !== undefined && !Number.isNaN(item.delta))
-    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.name.localeCompare(b.name))
-    .slice(0, moverSeriesLimit)
+    .filter((item) => direction === "both" || (direction === "slowdowns" ? item.delta > 0 : item.delta < 0))
+    .sort((a, b) => {
+      if (direction === "slowdowns") return b.delta - a.delta || a.name.localeCompare(b.name);
+      if (direction === "speedups") return a.delta - b.delta || a.name.localeCompare(b.name);
+      return Math.abs(b.delta) - Math.abs(a.delta) || a.name.localeCompare(b.name);
+    })
+    .slice(0, count)
     .map((item) => [item.name, item.rows]);
 }
 
@@ -237,7 +242,6 @@ function updateTrendCard(id, item, metric) {
 }
 
 function renderOverview() {
-  const metric = document.getElementById("metric").value;
   const groups = byBenchmark(metric);
   const items = [];
   for (const [benchmark, rows] of groups.entries()) {
@@ -290,7 +294,6 @@ function renderOverview() {
 }
 
 function renderHeatmap() {
-  const metric = document.getElementById("metric").value;
   const runTimes = unique(state.rows.map((row) => chartTime(row)));
   const groups = byBenchmark(metric);
   const benchmarks = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
@@ -392,7 +395,9 @@ function render() {
   const benchmark = document.getElementById("benchmark").value;
   const filterText = document.getElementById("benchmark-filter").value;
   const chartView = document.getElementById("chart-view").value;
-  const metric = document.getElementById("metric").value;
+  const moverRange = document.getElementById("mover-range").value;
+  const moverDirection = document.getElementById("mover-direction").value;
+  const moverCount = Math.max(1, Math.min(100, Number(document.getElementById("mover-count").value) || 20));
   const limit = Number(document.getElementById("limit").value);
   const axisScale = document.getElementById("axis-scale").value;
   const groups = byBenchmark(metric);
@@ -402,14 +407,14 @@ function render() {
     : [[benchmark, groups.get(benchmark) || []]];
   const matchingSeriesCount = selectedGroups.length;
   let moversApplied = false;
-  const isMoverView = chartView === "recent-movers" || chartView === "all-time-movers";
-  if (isMoverView && selectedGroups.length > moverSeriesLimit) {
+  if (chartView === "movers" && selectedGroups.length > moverCount) {
     const movers = largestMovers(
       selectedGroups,
-      metric,
       limit,
       axisScale,
-      chartView === "recent-movers",
+      moverRange === "recent",
+      moverDirection,
+      moverCount,
     );
     if (movers.length > 0) {
       selectedGroups = movers;
@@ -496,7 +501,7 @@ function render() {
   const latest = latestRows.length === 1 ? latestRows[0].latest : null;
   const filterSummary = filterText.trim() ? ` matching "${filterText.trim()}"` : "";
   const viewSummary = moversApplied
-    ? `, showing ${datasets.length} ${chartView === "recent-movers" ? "recent" : "all-time"} movers from ${matchingSeriesCount}`
+    ? `, showing ${datasets.length} ${moverRange === "recent" ? "recent" : "all-time"} ${moverDirection} movers from ${matchingSeriesCount}`
     : "";
   document.getElementById("summary").textContent = benchmark === "__all__"
     ? `Showing ${datasets.length} benchmark series${filterSummary}${viewSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
@@ -518,9 +523,10 @@ async function main() {
   state.rows = rows;
   populate();
   render();
-  for (const id of ["benchmark", "metric", "chart-view", "limit", "axis-scale"]) {
+  for (const id of ["benchmark", "chart-view", "mover-range", "mover-direction", "mover-count", "limit", "axis-scale"]) {
     document.getElementById(id).addEventListener("change", render);
   }
+  document.getElementById("mover-count").addEventListener("input", render);
   document.getElementById("benchmark-filter").addEventListener("input", () => {
     document.getElementById("benchmark").value = "__all__";
     render();

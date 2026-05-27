@@ -68,21 +68,30 @@
         <input id="benchmark-filter" type="search" placeholder="wallet">
       </label>
       <label>
-        Metric
-        <select id="metric">
-          <option value="median_elapsed">Median elapsed</option>
-          <option value="min_elapsed">Minimum elapsed</option>
-          <option value="max_elapsed">Maximum elapsed</option>
-          <option value="total_elapsed">Total elapsed</option>
+        Chart view
+        <select id="chart-view">
+          <option value="movers" selected>Movers</option>
+          <option value="all">All series</option>
         </select>
       </label>
       <label>
-        Chart view
-        <select id="chart-view">
-          <option value="recent-movers" selected>Recent movers</option>
-          <option value="all-time-movers">All-time movers</option>
-          <option value="all">All series</option>
+        Mover range
+        <select id="mover-range">
+          <option value="recent" selected>Recent</option>
+          <option value="all-time">All-time</option>
         </select>
+      </label>
+      <label>
+        Mover direction
+        <select id="mover-direction">
+          <option value="both" selected>Both</option>
+          <option value="slowdowns">Slowdowns</option>
+          <option value="speedups">Speedups</option>
+        </select>
+      </label>
+      <label>
+        Mover count
+        <input id="mover-count" type="number" min="1" max="100" value="20">
       </label>
       <label>
         Recent runs
