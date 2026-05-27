@@ -193,8 +193,8 @@ input[type="search"] {
 }
 
 #chart {
-  height: min(640px, calc(100vh - 250px));
-  min-height: 420px;
+  height: clamp(620px, 72vh, 900px);
+  min-height: 620px;
   padding: 16px;
 }
 
@@ -327,6 +327,6 @@ input[type="search"] {
   .trend-grid { grid-template-columns: 1fr; }
   .toolbar { grid-template-columns: 1fr; }
   .chart-shell { grid-template-columns: 1fr; }
-  #chart { height: 520px; }
+  #chart { height: 620px; }
   .series-panel { height: 220px; min-height: 0; }
 }

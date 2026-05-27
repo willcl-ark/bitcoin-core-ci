@@ -110,13 +110,21 @@ function filterGroups(groups, filterText) {
   return entries.filter(([name]) => name.toLowerCase().includes(needle));
 }
 
-function groupDelta(rows, metric) {
-  if (rows.length < 2) return null;
-  return pctDelta(rows.at(-1)[metric], rows.at(-2)[metric]);
+function chartRows(rows, metric, limit, axisScale) {
+  let visible = rows.slice();
+  if (limit > 0) visible = visible.slice(-limit);
+  if (axisScale === "logarithmic") visible = visible.filter((row) => row[metric] > 0);
+  return visible;
 }
 
-function largestMovers(groups, metric) {
+function groupDelta(rows, metric) {
+  if (rows.length < 2) return null;
+  return pctDelta(rows.at(-1)[metric], rows[0][metric]);
+}
+
+function largestMovers(groups, metric, limit, axisScale, useDisplayWindow) {
   return groups
+    .map(([name, rows]) => [name, useDisplayWindow ? chartRows(rows, metric, limit, axisScale) : rows])
     .map(([name, rows]) => ({ name, rows, delta: groupDelta(rows, metric) }))
     .filter((item) => item.delta !== null && item.delta !== undefined && !Number.isNaN(item.delta))
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.name.localeCompare(b.name))
@@ -394,8 +402,15 @@ function render() {
     : [[benchmark, groups.get(benchmark) || []]];
   const matchingSeriesCount = selectedGroups.length;
   let moversApplied = false;
-  if (chartView === "movers" && selectedGroups.length > moverSeriesLimit) {
-    const movers = largestMovers(selectedGroups, metric);
+  const isMoverView = chartView === "recent-movers" || chartView === "all-time-movers";
+  if (isMoverView && selectedGroups.length > moverSeriesLimit) {
+    const movers = largestMovers(
+      selectedGroups,
+      metric,
+      limit,
+      axisScale,
+      chartView === "recent-movers",
+    );
     if (movers.length > 0) {
       selectedGroups = movers;
       moversApplied = true;
@@ -403,9 +418,7 @@ function render() {
   }
   const selectedRows = [];
   const datasets = selectedGroups.map(([name, groupRows], index) => {
-    let rows = groupRows.slice();
-    if (limit > 0) rows = rows.slice(-limit);
-    if (axisScale === "logarithmic") rows = rows.filter((row) => row[metric] > 0);
+    const rows = chartRows(groupRows, metric, limit, axisScale);
     selectedRows.push(...rows);
     const color = seriesColor(index);
     const pointRadius = benchmark === "__all__" || filterText.trim() ? 2 : 3;
@@ -483,7 +496,7 @@ function render() {
   const latest = latestRows.length === 1 ? latestRows[0].latest : null;
   const filterSummary = filterText.trim() ? ` matching "${filterText.trim()}"` : "";
   const viewSummary = moversApplied
-    ? `, showing ${datasets.length} largest movers from ${matchingSeriesCount}`
+    ? `, showing ${datasets.length} ${chartView === "recent-movers" ? "recent" : "all-time"} movers from ${matchingSeriesCount}`
     : "";
   document.getElementById("summary").textContent = benchmark === "__all__"
     ? `Showing ${datasets.length} benchmark series${filterSummary}${viewSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
