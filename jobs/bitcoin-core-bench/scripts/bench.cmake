@@ -51,10 +51,15 @@ endif()
 
 set(bench_binary "${CTEST_BINARY_DIRECTORY}/bin/bench_bitcoin")
 set(bench_script "${CTEST_BINARY_DIRECTORY}/run-bitcoin-bench.sh")
+if(DEFINED ENV{BENCHMARK_CPU_AFFINITY} AND NOT "$ENV{BENCHMARK_CPU_AFFINITY}" STREQUAL "")
+    set(bench_prefix "taskset -c \"$ENV{BENCHMARK_CPU_AFFINITY}\" ")
+else()
+    set(bench_prefix "")
+endif()
 file(WRITE "${bench_script}"
     "#!/usr/bin/env bash\n"
     "set -euo pipefail\n"
-    "\"${bench_binary}\" -min-time=\"$ENV{BENCHMARK_MIN_TIME_MS}\" -output-json=\"$ENV{BENCHMARK_JSON}\" -output-csv=\"$ENV{BENCHMARK_CSV}\" 2>&1 | tee \"$ENV{BENCHMARK_LOG}\"\n"
+    "${bench_prefix}\"${bench_binary}\" -min-time=\"$ENV{BENCHMARK_MIN_TIME_MS}\" -output-json=\"$ENV{BENCHMARK_JSON}\" -output-csv=\"$ENV{BENCHMARK_CSV}\" 2>&1 | tee \"$ENV{BENCHMARK_LOG}\"\n"
 )
 file(CHMOD "${bench_script}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 

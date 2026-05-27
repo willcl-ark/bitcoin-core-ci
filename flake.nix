@@ -3,10 +3,18 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { nixpkgs, ... }:
+    {
+      nixpkgs,
+      sops-nix,
+      ...
+    }:
     {
       formatter.x86_64-linux = nixpkgs.legacyPackages.x86_64-linux.nixfmt-tree;
 
@@ -16,6 +24,19 @@
           ./machines/beelink/hardware-configuration.nix
           (
             { lib, pkgs, ... }:
+            {
+              imports = [
+                sops-nix.nixosModules.sops
+              ];
+            }
+          )
+          (
+            {
+              lib,
+              pkgs,
+              config,
+              ...
+            }:
             let
               ciHome = "/var/lib/ci-runner";
               nightlyJob = ./jobs/bitcoin-core-nightly;
@@ -33,6 +54,10 @@
               benchmarkRoot = "${ciHome}/benchmarks/bitcoin-core";
               benchmarkArtifactRoot = "${benchmarkRoot}/artifacts";
               benchmarkDb = "${benchmarkRoot}/benchmarks.sqlite";
+              benchmarkSiteDir = "${benchmarkRoot}/site";
+              benchmarkCpuAffinity = "2,3";
+              benchmarkIsolatedCpus = "2,3,14,15";
+              cloudflaredStateDir = "/var/lib/cloudflared";
               guixSdkDir = "${ciHome}/guix-sdk";
               guixSourcesDir = "${ciHome}/guix-sources";
               guixCacheDir = "/var/cache/ci-runner/guix";
@@ -61,22 +86,12 @@
                     };
                     bitcoin-bench-nightly = {
                       command = [
-                        "${pkgs.bash}/bin/bash"
-                        "${benchJob}/scripts/run-bench.sh"
+                        "${pkgs.sudo}/bin/sudo"
+                        "${pkgs.systemd}/bin/systemctl"
+                        "start"
+                        "ci-bitcoin-bench-run.service"
                       ];
                       cwd = "${benchJob}";
-                      env = {
-                        BENCHMARK_ARTIFACT_ROOT = benchmarkArtifactRoot;
-                        BENCHMARK_DB = benchmarkDb;
-                        BENCHMARK_MIN_TIME_MS = "1000";
-                        BITCOIN_REPO = benchBitcoinRepo;
-                        BITCOIN_REPO_URL = bitcoinRepoUrl;
-                        CCACHE_DIR = ccacheDir;
-                        CCACHE_MAXSIZE = ccacheMaxSize;
-                        CDASH_BUILD_NAME_PREFIX = cdashBuildNamePrefix;
-                        CTEST_SITE = ctestSite;
-                        WORK_DIR = workDir;
-                      };
                     };
                     bitcoin-guix = {
                       command = [
@@ -119,12 +134,34 @@
                 destination = "/bin/ci-runner";
                 text = "#!${pkgs.python3}/bin/python3\n" + builtins.readFile ./runner/ci_runner.py;
               };
+              initializeBenchmarkSite = pkgs.writeShellScript "initialize-benchmark-site" ''
+                                set -euo pipefail
+                                install -d -m 0755 -o ci-runner -g ci-runner ${benchmarkSiteDir}
+                                if [ ! -e ${benchmarkSiteDir}/index.html ]; then
+                                  cat > ${benchmarkSiteDir}/index.html <<'EOF'
+                <!doctype html>
+                <html lang="en">
+                <head><meta charset="utf-8"><title>Bitcoin Core Benchmarks</title></head>
+                <body><h1>Bitcoin Core Benchmarks</h1><p>Waiting for the first benchmark run.</p></body>
+                </html>
+                EOF
+                                  chown ci-runner:ci-runner ${benchmarkSiteDir}/index.html
+                                fi
+              '';
+              pyperfPython = pkgs.python3.withPackages (pythonPackages: [
+                pythonPackages.pyperf
+              ]);
               ctestSite = "willcl-ark/beelink";
               cdashBuildNamePrefix = "nixpkgs";
             in
             {
               boot.loader.systemd-boot.enable = true;
               boot.loader.efi.canTouchEfiVariables = true;
+              boot.kernelParams = [
+                "isolcpus=${benchmarkIsolatedCpus}"
+                "rcu_nocbs=${benchmarkIsolatedCpus}"
+              ];
+              boot.kernelModules = [ "msr" ];
 
               networking.hostName = "beelink";
               networking.networkmanager = {
@@ -144,6 +181,16 @@
                 package = pkgs.guix;
               };
 
+              sops = {
+                defaultSopsFile = ./secrets/beelink.yaml;
+                age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
+                secrets."cloudflared/tunnel-token" = {
+                  owner = "cloudflared";
+                  group = "cloudflared";
+                  mode = "0400";
+                };
+              };
+
               users.users.root.openssh.authorizedKeys.keys = [
                 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH988C5DbEPHfoCphoW23MWq9M6fmA4UTXREiZU0J7n0 will.hetzner@temp.com"
               ];
@@ -160,14 +207,32 @@
               };
 
               users.groups.ci-runner = { };
+              users.groups.cloudflared = { };
               users.users.ci-runner = {
                 isSystemUser = true;
                 group = "ci-runner";
                 home = ciHome;
                 createHome = true;
               };
+              users.users.cloudflared = {
+                isSystemUser = true;
+                group = "cloudflared";
+                home = cloudflaredStateDir;
+                createHome = true;
+              };
 
               security.sudo.wheelNeedsPassword = false;
+              security.sudo.extraRules = [
+                {
+                  users = [ "ci-runner" ];
+                  commands = [
+                    {
+                      command = "${pkgs.systemd}/bin/systemctl start ci-bitcoin-bench-run.service";
+                      options = [ "NOPASSWD" ];
+                    }
+                  ];
+                }
+              ];
 
               nix.settings = {
                 experimental-features = [
@@ -185,6 +250,7 @@
 
               environment.systemPackages = with pkgs; [
                 ciRunner
+                cloudflared
                 git
                 vim
               ];
@@ -195,6 +261,8 @@
                 "d ${ccacheDir} 0750 ci-runner ci-runner -"
                 "d ${benchmarkRoot} 0750 ci-runner ci-runner -"
                 "d ${benchmarkArtifactRoot} 0750 ci-runner ci-runner -"
+                "d ${benchmarkSiteDir} 0755 ci-runner ci-runner -"
+                "d ${cloudflaredStateDir} 0750 cloudflared cloudflared -"
                 "d ${guixSdkDir} 0750 ci-runner ci-runner -"
                 "d ${guixSourcesDir} 0750 ci-runner ci-runner -"
                 "d ${guixCacheDir} 0750 ci-runner ci-runner -"
@@ -229,6 +297,7 @@
                     guix
                     nix
                     python3
+                    sudo
                   ];
                   serviceConfig = {
                     Type = "simple";
@@ -258,6 +327,79 @@
                     User = "ci-runner";
                     Group = "ci-runner";
                     ExecStart = "${ciRunner}/bin/ci-runner --queue-dir ${queueDir} enqueue bitcoin-bench-nightly --kind nightly --dedupe-key nightly:bitcoin-bench --replace-pending";
+                  };
+                };
+
+                ci-bitcoin-bench-run = {
+                  description = "Run Bitcoin Core benchmark CI with pyperf tuning";
+                  path = [
+                    pyperfPython
+                    pkgs.bash
+                    pkgs.coreutils
+                    pkgs.git
+                    pkgs.nix
+                    pkgs.sudo
+                    pkgs.systemd
+                    pkgs.util-linux
+                  ];
+                  environment = {
+                    BENCHMARK_ARTIFACT_ROOT = benchmarkArtifactRoot;
+                    BENCHMARK_CPU_AFFINITY = benchmarkCpuAffinity;
+                    BENCHMARK_DB = benchmarkDb;
+                    BENCHMARK_MIN_TIME_MS = "1000";
+                    BENCHMARK_SITE_DIR = benchmarkSiteDir;
+                    BITCOIN_REPO = benchBitcoinRepo;
+                    BITCOIN_REPO_URL = bitcoinRepoUrl;
+                    CCACHE_DIR = ccacheDir;
+                    CCACHE_MAXSIZE = ccacheMaxSize;
+                    CDASH_BUILD_NAME_PREFIX = cdashBuildNamePrefix;
+                    CTEST_SITE = ctestSite;
+                    WORK_DIR = workDir;
+                  };
+                  serviceConfig = {
+                    Type = "oneshot";
+                    User = "root";
+                    Group = "root";
+                    WorkingDirectory = benchJob;
+                    ExecStart = "${pkgs.bash}/bin/bash ${benchJob}/scripts/run-bench-with-pyperf.sh";
+                  };
+                };
+
+                ci-bitcoin-bench-dashboard = {
+                  description = "Serve Bitcoin Core benchmark dashboard";
+                  wantedBy = [ "multi-user.target" ];
+                  serviceConfig = {
+                    Type = "simple";
+                    ExecStartPre = "+${initializeBenchmarkSite}";
+                    ExecStart = "${pkgs.python3}/bin/python3 -m http.server --bind 127.0.0.1 8080 --directory ${benchmarkSiteDir}";
+                    User = "ci-runner";
+                    Group = "ci-runner";
+                    Restart = "always";
+                    RestartSec = "10";
+                  };
+                };
+
+                ci-bitcoin-bench-cloudflared = {
+                  description = "Expose Bitcoin Core benchmark dashboard through Cloudflare Tunnel";
+                  wantedBy = [ "multi-user.target" ];
+                  wants = [
+                    "network-online.target"
+                    "ci-bitcoin-bench-dashboard.service"
+                  ];
+                  after = [
+                    "network-online.target"
+                    "ci-bitcoin-bench-dashboard.service"
+                  ];
+                  serviceConfig = {
+                    Type = "simple";
+                    User = "cloudflared";
+                    Group = "cloudflared";
+                    WorkingDirectory = cloudflaredStateDir;
+                    ExecStart = "${pkgs.cloudflared}/bin/cloudflared tunnel --no-autoupdate --metrics 127.0.0.1:20241 run --token-file ${
+                      config.sops.secrets."cloudflared/tunnel-token".path
+                    }";
+                    Restart = "always";
+                    RestartSec = "10";
                   };
                 };
 

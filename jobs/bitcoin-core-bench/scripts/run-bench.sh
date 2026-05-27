@@ -60,6 +60,7 @@ export BENCHMARK_JSON="${bench_json}"
 export BENCHMARK_LOG="${bench_log}"
 export BENCHMARK_CSV="${bench_csv}"
 export BENCHMARK_METADATA="${metadata_file}"
+export BENCHMARK_CPU_AFFINITY="${BENCHMARK_CPU_AFFINITY:-}"
 export BENCHMARK_MIN_TIME_MS="${BENCHMARK_MIN_TIME_MS:-1000}"
 export CDASH_BUILD_NAME_PREFIX
 export CDASH_BUILD_NAME_SUFFIX=bench
@@ -74,6 +75,7 @@ python3 "${script_dir}/record-bench-results.py" write-metadata \
     --preset bench \
     --min-time-ms "${BENCHMARK_MIN_TIME_MS}" \
     --artifact-dir "${artifact_dir}" \
+    --cpu-affinity "${BENCHMARK_CPU_AFFINITY}" \
     --command "bin/bench_bitcoin -min-time=${BENCHMARK_MIN_TIME_MS} -output-json=${bench_json} -output-csv=${bench_csv}"
 
 cd "${job_dir}"
@@ -96,3 +98,8 @@ python3 "${script_dir}/record-bench-results.py" record \
     --db "${BENCHMARK_DB}" \
     --metadata "${metadata_file}" \
     --bench-json "${bench_json}"
+
+python3 "${script_dir}/generate-site.py" \
+    --db "${BENCHMARK_DB}" \
+    --output-dir "${BENCHMARK_SITE_DIR}" \
+    --generated-at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"

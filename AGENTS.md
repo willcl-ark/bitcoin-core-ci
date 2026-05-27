@@ -26,6 +26,8 @@ CMake/CTest jobs, starting with Bitcoin Core dashboard builds.
 - Keep queue state under `/var/lib/ci-runner/queue`.
 - Keep the shared CI ccache under `/var/cache/ci-runner/ccache`.
 - Keep local benchmark results under `/var/lib/ci-runner/benchmarks`.
+- Serve generated benchmark dashboard files from the benchmark state directory;
+  keep tunnel/provider credentials encrypted with SOPS.
 - Let timing/instrumentation jobs opt out of ccache when cached timings would
   hide useful build-cost data.
 - Do not lock `jobs/bitcoin-core-nightly`; it should follow nightly nixpkgs.

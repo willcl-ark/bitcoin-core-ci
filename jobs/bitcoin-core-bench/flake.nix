@@ -56,6 +56,7 @@
           pkgs.ninja
           pkgs.pkg-config
           pkgs.python3
+          pkgs.util-linux
         ];
 
         buildInputs = [
