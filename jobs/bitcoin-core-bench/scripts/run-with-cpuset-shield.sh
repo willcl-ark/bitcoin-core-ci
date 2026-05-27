@@ -28,9 +28,11 @@ set_slice_cpus() {
 restore_cpus() {
     set +e
     set_slice_cpus 0-23
+    systemctl set-property --runtime -- ci-bitcoin-bench.slice AllowedCPUs=0-23
 }
 trap restore_cpus EXIT
 
+systemctl set-property --runtime -- ci-bitcoin-bench.slice "AllowedCPUs=${shield_cpus}"
 set_slice_cpus "${housekeeping_cpus}"
 
 systemd-run \
@@ -38,8 +40,8 @@ systemd-run \
     --collect \
     --quiet \
     --pipe \
+    --slice=ci-bitcoin-bench.slice \
     --property "WorkingDirectory=/var/lib/ci-runner" \
-    --property "AllowedCPUs=${shield_cpus}" \
     --property "User=ci-runner" \
     --property "Group=ci-runner" \
     -- "$@"
