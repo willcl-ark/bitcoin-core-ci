@@ -74,7 +74,7 @@ INDEX_HTML = """<!doctype html>
 
     .overview-grid {
       display: grid;
-      grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr);
+      grid-template-columns: minmax(0, 1fr);
       gap: 16px;
       margin-bottom: 24px;
     }
@@ -118,7 +118,7 @@ INDEX_HTML = """<!doctype html>
 
     tr { cursor: pointer; }
     tr:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-    .name-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
+    .name-cell { max-width: 720px; overflow: hidden; text-overflow: ellipsis; }
     .delta-bad { color: var(--bad); font-weight: 700; }
     .delta-good { color: var(--good); font-weight: 700; }
     .spark { width: 110px; height: 28px; }
