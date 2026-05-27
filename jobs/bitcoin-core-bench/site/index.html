@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bitcoin Core Benchmarks</title>
-  <script src="https://cdn.plot.ly/plotly-3.0.1.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -82,8 +82,15 @@
           <option value="0">All</option>
         </select>
       </label>
+      <label>
+        Y axis
+        <select id="axis-scale">
+          <option value="linear" selected>Linear</option>
+          <option value="logarithmic">Log</option>
+        </select>
+      </label>
     </div>
-    <div id="chart"></div>
+    <div id="chart"><canvas id="chart-canvas"></canvas></div>
     <div class="summary" id="summary"></div>
   </main>
   <script src="app.js"></script>

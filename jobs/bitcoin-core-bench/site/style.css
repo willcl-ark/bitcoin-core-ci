@@ -135,7 +135,7 @@ tr:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(140px, 180px));
+  grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(140px, 180px));
   gap: 12px;
   align-items: end;
   margin-bottom: 20px;
@@ -166,8 +166,81 @@ select {
   background: var(--panel);
 }
 
-#chart { height: min(640px, calc(100vh - 250px)); min-height: 420px; }
-#heatmap { height: 520px; }
+#chart {
+  height: min(640px, calc(100vh - 250px));
+  min-height: 420px;
+  padding: 16px;
+}
+
+#heatmap {
+  height: 520px;
+  overflow: auto;
+  padding: 12px;
+}
+
+#chart-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, max-content) repeat(var(--run-count), 32px);
+  gap: 3px;
+  align-items: center;
+  min-width: max-content;
+}
+
+.heatmap-label,
+.heatmap-run {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.heatmap-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 260px;
+  padding-right: 8px;
+}
+
+.heatmap-run {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  height: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.heatmap-cell {
+  width: 32px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  background: color-mix(in srgb, var(--line) 35%, transparent);
+}
+
+.heatmap-slow {
+  border-color: var(--bad);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent);
+}
+
+.heatmap-very-slow {
+  border-color: var(--bad);
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--bad) 72%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--bad) 28%, transparent);
+}
+
+.heatmap-empty {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .summary { margin-top: 16px; color: var(--muted); font-size: 14px; }
 
 @media (max-width: 900px) {

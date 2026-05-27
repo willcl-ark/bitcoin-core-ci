@@ -1,5 +1,6 @@
 const state = { rows: [], metadata: {} };
 const minTrendRuns = 7;
+let chart;
 
 function formatSeconds(value) {
   if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
@@ -12,6 +13,31 @@ function formatSeconds(value) {
 function unique(values) { return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b)); }
 function pct(value) { return value === null || value === undefined || Number.isNaN(value) ? "n/a" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`; }
 function pctDelta(latest, base) { return base ? ((latest - base) / base) * 100 : null; }
+function cssColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function seriesColor(index) {
+  const colors = [
+    "#0b7285", "#6741d9", "#c2255c", "#2b8a3e", "#e67700",
+    "#1864ab", "#862e9c", "#087f5b", "#5c940d", "#d9480f",
+  ];
+  return colors[index % colors.length];
+}
+
+function heatmapColor(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "color-mix(in srgb, var(--line) 35%, transparent)";
+  const clamped = Math.max(-15, Math.min(15, value));
+  const intensity = Math.min(92, 16 + Math.abs(clamped) * 5);
+  return clamped < 0
+    ? `color-mix(in srgb, var(--good) ${intensity}%, var(--panel))`
+    : `color-mix(in srgb, var(--bad) ${intensity}%, var(--panel))`;
+}
+
+function heatmapSeverityClass(value) {
+  if (value === null || value === undefined || Number.isNaN(value) || value <= 0) return "";
+  if (value >= 10) return " heatmap-very-slow";
+  if (value >= 5) return " heatmap-slow";
+  return "";
+}
 
 function byBenchmark(metric) {
   const groups = new Map();
@@ -132,19 +158,14 @@ function renderHeatmap() {
   const benchmarks = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
   const enoughRuns = runTimes.length >= minTrendRuns;
   document.getElementById("heatmap-note").textContent = enoughRuns
-    ? "Color shows percent change from each benchmark's rolling baseline."
+    ? "Color shows percent change from each benchmark's rolling baseline; outlined red cells are large slowdowns."
     : `Heatmap activates after ${minTrendRuns} runs; currently ${runTimes.length}.`;
 
   if (!enoughRuns || benchmarks.length === 0) {
-    Plotly.react("heatmap", [], {
-      annotations: [{ text: `Need ${minTrendRuns} runs for heatmap`, x: 0.5, y: 0.5, xref: "paper", yref: "paper", showarrow: false }],
-      xaxis: { visible: false },
-      yaxis: { visible: false },
-      paper_bgcolor: "rgba(0,0,0,0)",
-      plot_bgcolor: "rgba(0,0,0,0)",
-      font: { color: getComputedStyle(document.documentElement).getPropertyValue("--text") },
-      margin: { t: 24, r: 24, b: 24, l: 24 },
-    }, { responsive: true, displayModeBar: false });
+    const empty = document.createElement("div");
+    empty.className = "heatmap-empty";
+    empty.textContent = `Need ${minTrendRuns} runs for heatmap`;
+    document.getElementById("heatmap").replaceChildren(empty);
     return;
   }
 
@@ -163,66 +184,117 @@ function renderHeatmap() {
     });
   });
 
-  Plotly.react("heatmap", [{
-    type: "heatmap",
-    x: runTimes,
-    y: benchmarks,
-    z,
-    zmid: 0,
-    colorscale: [[0, "#287d3c"], [0.5, "#f2f4f7"], [1, "#b42318"]],
-    colorbar: { title: "%" },
-    hovertemplate: "%{y}<br>%{x}<br>%{z:.2f}%<extra></extra>",
-  }], {
-    margin: { t: 24, r: 24, b: 80, l: 260 },
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
-    font: { color: getComputedStyle(document.documentElement).getPropertyValue("--text") },
-    xaxis: { title: "Run time", gridcolor: getComputedStyle(document.documentElement).getPropertyValue("--line") },
-    yaxis: { automargin: true },
-  }, { responsive: true, displayModeBar: true });
+  const heatmap = document.getElementById("heatmap");
+  const grid = document.createElement("div");
+  grid.className = "heatmap-grid";
+  grid.style.setProperty("--run-count", runTimes.length);
+  grid.appendChild(document.createElement("div"));
+  for (const runTime of runTimes) {
+    const label = document.createElement("div");
+    label.className = "heatmap-run";
+    label.textContent = runTime;
+    label.title = runTime;
+    grid.appendChild(label);
+  }
+  benchmarks.forEach((benchmark, rowIndex) => {
+    const label = document.createElement("div");
+    label.className = "heatmap-label";
+    label.textContent = benchmark;
+    label.title = benchmark;
+    grid.appendChild(label);
+    runTimes.forEach((runTime, columnIndex) => {
+      const cell = document.createElement("div");
+      const value = z[rowIndex][columnIndex];
+      cell.className = `heatmap-cell${heatmapSeverityClass(value)}`;
+      cell.style.background = heatmapColor(value);
+      cell.title = value === null || value === undefined
+        ? `${benchmark}\n${runTime}\nn/a`
+        : `${benchmark}\n${runTime}\n${pct(value)}`;
+      grid.appendChild(cell);
+    });
+  });
+  heatmap.replaceChildren(grid);
 }
 
 function render() {
   const benchmark = document.getElementById("benchmark").value;
   const metric = document.getElementById("metric").value;
   const limit = Number(document.getElementById("limit").value);
+  const axisScale = document.getElementById("axis-scale").value;
   const groups = byBenchmark(metric);
   const selectedGroups = benchmark === "__all__"
     ? Array.from(groups.entries())
     : [[benchmark, groups.get(benchmark) || []]];
-  const traces = selectedGroups.map(([name, groupRows]) => {
+  const selectedRows = [];
+  const datasets = selectedGroups.map(([name, groupRows], index) => {
     let rows = groupRows.slice();
     if (limit > 0) rows = rows.slice(-limit);
+    if (axisScale === "logarithmic") rows = rows.filter((row) => row[metric] > 0);
+    selectedRows.push(...rows);
+    const color = seriesColor(index);
     return {
-      type: "scatter",
-      mode: "lines+markers",
-      name,
-      x: rows.map((row) => row.run_time),
-      y: rows.map((row) => row[metric]),
-      line: { width: 2 },
-      marker: { size: 5 },
-      customdata: rows.map((row) => [row.commit_hash.slice(0, 12), row.job_id]),
-      hovertemplate: "%{x}<br>%{customdata[0]}<br>%{y:.9f} s<extra>%{fullData.name}</extra>",
+      label: name,
+      data: rows.map((row) => ({
+        x: row.run_time,
+        y: row[metric],
+        commit: row.commit_hash.slice(0, 12),
+        jobId: row.job_id,
+      })),
+      borderColor: color,
+      backgroundColor: color,
+      borderWidth: 2,
+      pointRadius: benchmark === "__all__" ? 2 : 3,
+      pointHoverRadius: 6,
+      tension: 0.22,
     };
-  }).filter((trace) => trace.x.length > 0);
+  }).filter((dataset) => dataset.data.length > 0);
+  const labels = unique(selectedRows.map((row) => row.run_time));
 
-  Plotly.react("chart", traces, {
-    margin: { t: 24, r: benchmark === "__all__" ? 180 : 24, b: 56, l: 72 },
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
-    font: { color: getComputedStyle(document.documentElement).getPropertyValue("--text") },
-    showlegend: benchmark === "__all__",
-    legend: { x: 1.02, y: 1, xanchor: "left", yanchor: "top" },
-    xaxis: { title: "Run time", gridcolor: getComputedStyle(document.documentElement).getPropertyValue("--line") },
-    yaxis: { title: metric.replaceAll("_", " "), gridcolor: getComputedStyle(document.documentElement).getPropertyValue("--line") },
-  }, { responsive: true, displayModeBar: true });
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById("chart-canvas"), {
+    type: "line",
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "nearest", intersect: false },
+      plugins: {
+        legend: {
+          display: benchmark === "__all__",
+          position: "right",
+          labels: { color: cssColor("--text"), boxWidth: 12, boxHeight: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            title: (items) => items[0]?.raw?.x || "",
+            label: (item) => `${item.dataset.label}: ${formatSeconds(item.raw.y)}`,
+            afterLabel: (item) => `${item.raw.commit}\n${item.raw.jobId}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          type: "category",
+          title: { display: true, text: "Run time", color: cssColor("--muted") },
+          grid: { color: cssColor("--line") },
+          ticks: { color: cssColor("--muted"), maxRotation: 40, autoSkip: true },
+        },
+        y: {
+          type: axisScale,
+          title: { display: true, text: metric.replaceAll("_", " "), color: cssColor("--muted") },
+          grid: { color: cssColor("--line") },
+          ticks: { color: cssColor("--muted"), callback: (value) => formatSeconds(Number(value)) },
+        },
+      },
+    },
+  });
 
   const latestRows = selectedGroups
     .map(([name, groupRows]) => ({ name, latest: groupRows.at(-1) }))
     .filter((item) => item.latest);
   const latest = latestRows.length === 1 ? latestRows[0].latest : null;
   document.getElementById("summary").textContent = benchmark === "__all__"
-    ? `Showing ${traces.length} benchmark series.`
+    ? `Showing ${datasets.length} benchmark series${axisScale === "logarithmic" ? " on a log axis" : ""}.`
     : latest
     ? `${benchmark}: latest ${formatSeconds(latest[metric])} at ${latest.run_time} (${latest.commit_hash.slice(0, 12)})`
     : "No results for this selection.";
@@ -239,7 +311,7 @@ async function main() {
   state.rows = rows;
   populate();
   render();
-  for (const id of ["benchmark", "metric", "limit"]) {
+  for (const id of ["benchmark", "metric", "limit", "axis-scale"]) {
     document.getElementById(id).addEventListener("change", render);
   }
 }
