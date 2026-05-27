@@ -1,6 +1,15 @@
 const state = { rows: [], metadata: {} };
 const minTrendRuns = 7;
+const moverSeriesLimit = 20;
+const seriesFocus = { hovered: null, pinned: null };
 let chart;
+
+Chart.Tooltip.positioners.offset = (_elements, eventPosition) => ({
+  x: eventPosition.x + 18,
+  y: Math.max(12, eventPosition.y - 18),
+  xAlign: "left",
+  yAlign: "bottom",
+});
 
 function formatSeconds(value) {
   if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
@@ -15,6 +24,49 @@ function pct(value) { return value === null || value === undefined || Number.isN
 function pctDelta(latest, base) { return base ? ((latest - base) / base) * 100 : null; }
 function cssColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function chartTime(row) { return row.commit_time || row.run_time; }
+function focusedSeries() { return seriesFocus.pinned || seriesFocus.hovered; }
+function pinnedSeries() { return seriesFocus.pinned; }
+
+function colorWithAlpha(color, alpha) {
+  const hex = color.replace("#", "");
+  const red = parseInt(hex.slice(0, 2), 16);
+  const green = parseInt(hex.slice(2, 4), 16);
+  const blue = parseInt(hex.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function pointSegmentDistance(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  if (dx === 0 && dy === 0) return Math.hypot(px - ax, py - ay);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function nearestChartSeries(event, elements) {
+  const datasetIndex = elements[0]?.datasetIndex;
+  if (datasetIndex !== undefined) return chart.data.datasets[datasetIndex]?.label || null;
+
+  let best = { label: null, distance: 12 };
+  chart.data.datasets.forEach((dataset, datasetIndex) => {
+    if (!chart.isDatasetVisible(datasetIndex)) return;
+    const points = chart.getDatasetMeta(datasetIndex).data;
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      const distance = pointSegmentDistance(
+        event.x,
+        event.y,
+        previous.x,
+        previous.y,
+        current.x,
+        current.y,
+      );
+      if (distance < best.distance) best = { label: dataset.label, distance };
+    }
+  });
+  return best.label;
+}
 
 function seriesColor(index) {
   const colors = [
@@ -56,6 +108,76 @@ function filterGroups(groups, filterText) {
   const entries = Array.from(groups.entries());
   if (!needle) return entries;
   return entries.filter(([name]) => name.toLowerCase().includes(needle));
+}
+
+function groupDelta(rows, metric) {
+  if (rows.length < 2) return null;
+  return pctDelta(rows.at(-1)[metric], rows.at(-2)[metric]);
+}
+
+function largestMovers(groups, metric) {
+  return groups
+    .map(([name, rows]) => ({ name, rows, delta: groupDelta(rows, metric) }))
+    .filter((item) => item.delta !== null && item.delta !== undefined && !Number.isNaN(item.delta))
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.name.localeCompare(b.name))
+    .slice(0, moverSeriesLimit)
+    .map((item) => [item.name, item.rows]);
+}
+
+function focusSeries(name, pinned = false) {
+  if (pinned) seriesFocus.pinned = seriesFocus.pinned === name ? null : name;
+  else seriesFocus.hovered = name;
+  applySeriesFocus();
+}
+
+function hoverSeries(name) {
+  if (seriesFocus.hovered === name) return;
+  seriesFocus.hovered = name;
+  renderSeriesFocus();
+}
+
+function clearHoverSeries(name) {
+  if (seriesFocus.hovered === name) {
+    seriesFocus.hovered = null;
+    renderSeriesFocus();
+  }
+}
+
+function clearPinnedSeries() {
+  seriesFocus.pinned = null;
+  applySeriesFocus();
+}
+
+function applySeriesFocus() {
+  if (!chart) return;
+  const active = pinnedSeries();
+  chart.data.datasets.forEach((dataset) => {
+    const selected = !active || dataset.label === active;
+    dataset.borderColor = selected ? dataset.baseColor : colorWithAlpha(dataset.baseColor, 0.18);
+    dataset.backgroundColor = selected ? dataset.baseColor : colorWithAlpha(dataset.baseColor, 0.18);
+    dataset.borderWidth = selected && active ? 4 : selected ? 2 : 1;
+    dataset.pointRadius = selected ? dataset.basePointRadius : 0;
+    dataset.pointHoverRadius = selected ? 7 : 0;
+  });
+  chart.update("none");
+  renderSeriesFocus();
+}
+
+function renderSeriesFocus() {
+  const active = focusedSeries();
+  const selection = document.getElementById("chart-selection");
+  if (!active) {
+    selection.replaceChildren();
+  } else {
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.textContent = "Clear";
+    clear.addEventListener("click", clearPinnedSeries);
+    selection.replaceChildren(document.createTextNode(`Selected: ${active}`), clear);
+  }
+  for (const button of document.querySelectorAll(".series-button")) {
+    button.classList.toggle("series-active", button.dataset.series === active);
+  }
 }
 
 function sparkline(rows, metric) {
@@ -238,6 +360,7 @@ function renderSeriesPanel(datasets, showPanel) {
     const button = document.createElement("button");
     button.className = "series-button";
     button.type = "button";
+    button.dataset.series = dataset.label;
     button.title = dataset.label;
     const swatch = document.createElement("span");
     swatch.className = "series-swatch";
@@ -246,27 +369,38 @@ function renderSeriesPanel(datasets, showPanel) {
     name.className = "series-name";
     name.textContent = dataset.label;
     button.replaceChildren(swatch, name);
-    button.addEventListener("click", () => {
-      chart.setDatasetVisibility(index, !chart.isDatasetVisible(index));
-      chart.update();
-      button.classList.toggle("series-hidden", !chart.isDatasetVisible(index));
-    });
+    button.addEventListener("mouseenter", () => hoverSeries(dataset.label));
+    button.addEventListener("mouseleave", () => clearHoverSeries(dataset.label));
+    button.addEventListener("click", () => focusSeries(dataset.label, true));
     list.appendChild(button);
   });
   panel.replaceChildren(list);
+  renderSeriesFocus();
 }
 
 function render() {
+  seriesFocus.hovered = null;
+  seriesFocus.pinned = null;
   const benchmark = document.getElementById("benchmark").value;
   const filterText = document.getElementById("benchmark-filter").value;
+  const chartView = document.getElementById("chart-view").value;
   const metric = document.getElementById("metric").value;
   const limit = Number(document.getElementById("limit").value);
   const axisScale = document.getElementById("axis-scale").value;
   const groups = byBenchmark(metric);
   const filteredGroups = filterGroups(groups, filterText);
-  const selectedGroups = benchmark === "__all__" || filterText.trim()
+  let selectedGroups = benchmark === "__all__" || filterText.trim()
     ? filteredGroups
     : [[benchmark, groups.get(benchmark) || []]];
+  const matchingSeriesCount = selectedGroups.length;
+  let moversApplied = false;
+  if (chartView === "movers" && selectedGroups.length > moverSeriesLimit) {
+    const movers = largestMovers(selectedGroups, metric);
+    if (movers.length > 0) {
+      selectedGroups = movers;
+      moversApplied = true;
+    }
+  }
   const selectedRows = [];
   const datasets = selectedGroups.map(([name, groupRows], index) => {
     let rows = groupRows.slice();
@@ -274,6 +408,7 @@ function render() {
     if (axisScale === "logarithmic") rows = rows.filter((row) => row[metric] > 0);
     selectedRows.push(...rows);
     const color = seriesColor(index);
+    const pointRadius = benchmark === "__all__" || filterText.trim() ? 2 : 3;
     return {
       label: name,
       data: rows.map((row) => ({
@@ -283,10 +418,12 @@ function render() {
         jobId: row.job_id,
         runTime: row.run_time,
       })),
+      baseColor: color,
+      basePointRadius: pointRadius,
       borderColor: color,
       backgroundColor: color,
       borderWidth: 2,
-      pointRadius: benchmark === "__all__" ? 2 : 3,
+      pointRadius,
       pointHoverRadius: 6,
       tension: 0.22,
     };
@@ -301,11 +438,20 @@ function render() {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: "nearest", intersect: false },
+      onHover: (event, elements) => {
+        hoverSeries(nearestChartSeries(event, elements));
+      },
+      onClick: (event, elements) => {
+        const series = nearestChartSeries(event, elements);
+        if (series) focusSeries(series, true);
+      },
       plugins: {
         legend: {
           display: false,
         },
         tooltip: {
+          position: "offset",
+          caretPadding: 14,
           callbacks: {
             title: (items) => items[0]?.raw?.x || "",
             label: (item) => `${item.dataset.label}: ${formatSeconds(item.raw.y)}`,
@@ -336,10 +482,13 @@ function render() {
     .filter((item) => item.latest);
   const latest = latestRows.length === 1 ? latestRows[0].latest : null;
   const filterSummary = filterText.trim() ? ` matching "${filterText.trim()}"` : "";
+  const viewSummary = moversApplied
+    ? `, showing ${datasets.length} largest movers from ${matchingSeriesCount}`
+    : "";
   document.getElementById("summary").textContent = benchmark === "__all__"
-    ? `Showing ${datasets.length} benchmark series${filterSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
+    ? `Showing ${datasets.length} benchmark series${filterSummary}${viewSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
     : filterText.trim()
-    ? `Showing ${datasets.length} benchmark series${filterSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
+    ? `Showing ${datasets.length} benchmark series${filterSummary}${viewSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
     : latest
     ? `${benchmark}: latest ${formatSeconds(latest[metric])} at ${chartTime(latest)} (${latest.commit_hash.slice(0, 12)})`
     : "No results for this selection.";
@@ -356,7 +505,7 @@ async function main() {
   state.rows = rows;
   populate();
   render();
-  for (const id of ["benchmark", "metric", "limit", "axis-scale"]) {
+  for (const id of ["benchmark", "metric", "chart-view", "limit", "axis-scale"]) {
     document.getElementById(id).addEventListener("change", render);
   }
   document.getElementById("benchmark-filter").addEventListener("input", () => {

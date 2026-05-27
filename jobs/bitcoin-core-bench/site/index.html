@@ -77,6 +77,13 @@
         </select>
       </label>
       <label>
+        Chart view
+        <select id="chart-view">
+          <option value="movers" selected>Biggest movers</option>
+          <option value="all">All series</option>
+        </select>
+      </label>
+      <label>
         Recent runs
         <select id="limit">
           <option value="30">30</option>
@@ -94,6 +101,7 @@
         </select>
       </label>
     </div>
+    <div class="chart-selection" id="chart-selection"></div>
     <div class="chart-shell">
       <div id="chart"><canvas id="chart-canvas"></canvas></div>
       <div class="series-panel" id="series-panel"></div>
