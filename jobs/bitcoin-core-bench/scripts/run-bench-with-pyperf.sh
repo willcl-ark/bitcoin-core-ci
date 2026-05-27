@@ -11,15 +11,29 @@ fi
 mkdir -p "${BENCHMARK_ARTIFACT_ROOT}/system"
 run_id="${CI_JOB_ID:-bitcoin-bench-$(date -u +"%Y%m%dT%H%M%SZ")}"
 pyperf_prefix="${BENCHMARK_ARTIFACT_ROOT}/system/${run_id}"
+wrapper_log="${pyperf_prefix}-wrapper.log"
+
+exec > >(tee -a "${wrapper_log}") 2>&1
+PS4='+ ${BASH_SOURCE##*/}:${LINENO}: '
+set -x
+
+on_error() {
+    local status=$?
+    echo "run-bench-with-pyperf failed at line ${BASH_LINENO[0]}: ${BASH_COMMAND} (status ${status})" >&2
+    exit "${status}"
+}
+trap on_error ERR
 
 reset_pyperf() {
     set +e
+    echo "resetting pyperf state"
     python3 -m pyperf system reset >"${pyperf_prefix}-reset.log" 2>&1
     echo "$?" >"${pyperf_prefix}-reset.status"
     python3 -m pyperf system show >"${pyperf_prefix}-after.log" 2>&1
 }
 trap reset_pyperf EXIT
 
+echo "writing benchmark system logs to ${pyperf_prefix}-*.log"
 python3 -m pyperf system show >"${pyperf_prefix}-before.log" 2>&1
 if python3 -m pyperf system tune --affinity="${BENCHMARK_CPU_AFFINITY}" >"${pyperf_prefix}-tune.log" 2>&1; then
     echo 0 >"${pyperf_prefix}-tune.status"
