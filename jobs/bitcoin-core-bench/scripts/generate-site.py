@@ -48,6 +48,23 @@ def write_json(path, value):
     tmp.replace(path)
 
 
+def asset_version(value):
+    return "".join(ch for ch in value if ch.isalnum())
+
+
+def copy_assets(output_dir, version):
+    for asset in SITE_DIR.iterdir():
+        if not asset.is_file():
+            continue
+        output = output_dir / asset.name
+        if asset.name == "index.html":
+            output.write_text(
+                asset.read_text().replace("__ASSET_VERSION__", version)
+            )
+        else:
+            shutil.copy2(asset, output)
+
+
 def generate(args):
     args.output_dir.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(args.db) as conn:
@@ -64,9 +81,7 @@ def generate(args):
             "runs": runs,
         },
     )
-    for asset in SITE_DIR.iterdir():
-        if asset.is_file():
-            shutil.copy2(asset, args.output_dir / asset.name)
+    copy_assets(args.output_dir, asset_version(args.generated_at))
     print(f"generated benchmark dashboard in {args.output_dir}")
 
 
