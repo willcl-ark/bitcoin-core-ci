@@ -38,7 +38,7 @@ systemd-run \
     --collect \
     --quiet \
     --pipe \
-    --same-dir \
+    --property "WorkingDirectory=/var/lib/ci-runner" \
     --property "AllowedCPUs=${shield_cpus}" \
     --property "User=ci-runner" \
     --property "Group=ci-runner" \
