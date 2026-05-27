@@ -76,6 +76,8 @@ python3 "${script_dir}/record-bench-results.py" write-metadata \
     --min-time-ms "${BENCHMARK_MIN_TIME_MS}" \
     --artifact-dir "${artifact_dir}" \
     --cpu-affinity "${BENCHMARK_CPU_AFFINITY}" \
+    --cpuset-shield "${BENCHMARK_CPUSET_SHIELD:-}" \
+    --cpuset-housekeeping "${BENCHMARK_CPUSET_HOUSEKEEPING:-}" \
     --command "bin/bench_bitcoin -min-time=${BENCHMARK_MIN_TIME_MS} -output-json=${bench_json} -output-csv=${bench_csv}"
 
 cd "${job_dir}"
@@ -88,6 +90,27 @@ nix develop "${job_dir}#gcc" \
             -DCTEST_SOURCE_DIRECTORY="$1" \
             -DCTEST_SITE="$2"
     ' bash "${worktree}" "${CTEST_SITE}"
+
+bench_command=("${worktree}/build-bench/bin/bench_bitcoin")
+if [ -n "${BENCHMARK_CPU_AFFINITY}" ]; then
+    bench_command=(taskset -c "${BENCHMARK_CPU_AFFINITY}" "${bench_command[@]}")
+fi
+
+if [ -n "${BENCHMARK_CPUSET_SHIELD:-}" ]; then
+    bench_command=(
+        sudo "${script_dir}/run-with-cpuset-shield.sh"
+        "${BENCHMARK_CPUSET_SHIELD}"
+        "${BENCHMARK_CPUSET_HOUSEKEEPING}"
+        --
+        "${bench_command[@]}"
+    )
+fi
+
+"${bench_command[@]}" \
+    -min-time="${BENCHMARK_MIN_TIME_MS}" \
+    -output-json="${bench_json}" \
+    -output-csv="${bench_csv}" \
+    2>&1 | tee "${bench_log}"
 
 if [ ! -s "${bench_json}" ]; then
     echo "benchmark JSON was not produced: ${bench_json}" >&2

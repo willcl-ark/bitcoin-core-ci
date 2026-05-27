@@ -49,37 +49,4 @@ if(NOT build_result EQUAL 0)
     message(FATAL_ERROR "bench_bitcoin build failed with exit code ${build_result}")
 endif()
 
-set(bench_binary "${CTEST_BINARY_DIRECTORY}/bin/bench_bitcoin")
-set(bench_script "${CTEST_BINARY_DIRECTORY}/run-bitcoin-bench.sh")
-if(DEFINED ENV{BENCHMARK_CPU_AFFINITY} AND NOT "$ENV{BENCHMARK_CPU_AFFINITY}" STREQUAL "")
-    set(bench_prefix "taskset -c \"$ENV{BENCHMARK_CPU_AFFINITY}\" ")
-else()
-    set(bench_prefix "")
-endif()
-file(WRITE "${bench_script}"
-    "#!/usr/bin/env bash\n"
-    "set -euo pipefail\n"
-    "${bench_prefix}\"${bench_binary}\" -min-time=\"$ENV{BENCHMARK_MIN_TIME_MS}\" -output-json=\"$ENV{BENCHMARK_JSON}\" -output-csv=\"$ENV{BENCHMARK_CSV}\" 2>&1 | tee \"$ENV{BENCHMARK_LOG}\"\n"
-)
-file(CHMOD "${bench_script}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
-
-file(WRITE "${CTEST_BINARY_DIRECTORY}/CTestTestfile.cmake"
-    "add_test(bitcoin-bench \"${bench_script}\")\n"
-    "set_tests_properties(bitcoin-bench PROPERTIES TIMEOUT 0)\n"
-)
-
-ctest_test(
-    BUILD ${CTEST_BINARY_DIRECTORY}
-    PARALLEL_LEVEL 1
-    OUTPUT_JUNIT "${CTEST_BINARY_DIRECTORY}/bench-junit.xml"
-    RETURN_VALUE test_result
-)
-
-if(DEFINED ENV{BENCHMARK_LOG} AND EXISTS "$ENV{BENCHMARK_LOG}")
-    list(APPEND CTEST_NOTES_FILES "$ENV{BENCHMARK_LOG}")
-endif()
-ctest_submit(PARTS "Test" "Notes" "Done")
-
-if(NOT test_result EQUAL 0)
-    message(FATAL_ERROR "bench_bitcoin failed with exit code ${test_result}")
-endif()
+ctest_submit(PARTS "Done")

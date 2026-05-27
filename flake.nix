@@ -51,12 +51,14 @@
               qaAssetsRepoUrl = "https://github.com/bitcoin-core/qa-assets";
               ccacheDir = "/var/cache/ci-runner/ccache";
               ccacheMaxSize = "75G";
+              benchmarkBase = "${ciHome}/benchmarks";
               benchmarkRoot = "${ciHome}/benchmarks/bitcoin-core";
               benchmarkArtifactRoot = "${benchmarkRoot}/artifacts";
               benchmarkDb = "${benchmarkRoot}/benchmarks.sqlite";
               benchmarkSiteDir = "${benchmarkRoot}/site";
               benchmarkCpuAffinity = "2,3";
-              benchmarkIsolatedCpus = "2,3,14,15";
+              benchmarkCpusetShield = "2,3,14,15";
+              benchmarkCpusetHousekeeping = "0,1,4-13,16-23";
               cloudflaredStateDir = "/var/lib/cloudflared";
               guixSdkDir = "${ciHome}/guix-sdk";
               guixSourcesDir = "${ciHome}/guix-sources";
@@ -134,8 +136,11 @@
                 destination = "/bin/ci-runner";
                 text = "#!${pkgs.python3}/bin/python3\n" + builtins.readFile ./runner/ci_runner.py;
               };
-              initializeBenchmarkSite = pkgs.writeShellScript "initialize-benchmark-site" ''
+              initializeBenchmarkState = pkgs.writeShellScript "initialize-benchmark-state" ''
                                 set -euo pipefail
+                                install -d -m 0750 -o ci-runner -g ci-runner ${benchmarkBase}
+                                install -d -m 0750 -o ci-runner -g ci-runner ${benchmarkRoot}
+                                install -d -m 0750 -o ci-runner -g ci-runner ${benchmarkArtifactRoot}
                                 install -d -m 0755 -o ci-runner -g ci-runner ${benchmarkSiteDir}
                                 if [ ! -e ${benchmarkSiteDir}/index.html ]; then
                                   cat > ${benchmarkSiteDir}/index.html <<'EOF'
@@ -157,10 +162,6 @@
             {
               boot.loader.systemd-boot.enable = true;
               boot.loader.efi.canTouchEfiVariables = true;
-              boot.kernelParams = [
-                "isolcpus=${benchmarkIsolatedCpus}"
-                "rcu_nocbs=${benchmarkIsolatedCpus}"
-              ];
               boot.kernelModules = [ "msr" ];
 
               networking.hostName = "beelink";
@@ -230,6 +231,10 @@
                       command = "${pkgs.systemd}/bin/systemctl start ci-bitcoin-bench-run.service";
                       options = [ "NOPASSWD" ];
                     }
+                    {
+                      command = "${benchJob}/scripts/run-with-cpuset-shield.sh";
+                      options = [ "NOPASSWD" ];
+                    }
                   ];
                 }
               ];
@@ -259,6 +264,7 @@
                 "d ${ciHome} 0750 ci-runner ci-runner -"
                 "d /var/cache/ci-runner 0750 ci-runner ci-runner -"
                 "d ${ccacheDir} 0750 ci-runner ci-runner -"
+                "d ${benchmarkBase} 0750 ci-runner ci-runner -"
                 "d ${benchmarkRoot} 0750 ci-runner ci-runner -"
                 "d ${benchmarkArtifactRoot} 0750 ci-runner ci-runner -"
                 "d ${benchmarkSiteDir} 0755 ci-runner ci-runner -"
@@ -345,6 +351,8 @@
                   environment = {
                     BENCHMARK_ARTIFACT_ROOT = benchmarkArtifactRoot;
                     BENCHMARK_CPU_AFFINITY = benchmarkCpuAffinity;
+                    BENCHMARK_CPUSET_HOUSEKEEPING = benchmarkCpusetHousekeeping;
+                    BENCHMARK_CPUSET_SHIELD = benchmarkCpusetShield;
                     BENCHMARK_DB = benchmarkDb;
                     BENCHMARK_MIN_TIME_MS = "1000";
                     BENCHMARK_SITE_DIR = benchmarkSiteDir;
@@ -361,6 +369,7 @@
                     User = "root";
                     Group = "root";
                     WorkingDirectory = benchJob;
+                    ExecStartPre = "+${initializeBenchmarkState}";
                     ExecStart = "${pkgs.bash}/bin/bash ${benchJob}/scripts/run-bench-with-pyperf.sh";
                   };
                 };
@@ -370,7 +379,7 @@
                   wantedBy = [ "multi-user.target" ];
                   serviceConfig = {
                     Type = "simple";
-                    ExecStartPre = "+${initializeBenchmarkSite}";
+                    ExecStartPre = "+${initializeBenchmarkState}";
                     ExecStart = "${pkgs.python3}/bin/python3 -m http.server --bind 127.0.0.1 8080 --directory ${benchmarkSiteDir}";
                     User = "ci-runner";
                     Group = "ci-runner";

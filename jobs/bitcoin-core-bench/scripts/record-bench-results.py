@@ -59,6 +59,8 @@ def write_metadata(args):
             "commit": args.commit,
             "compiler": args.compiler,
             "cpu_affinity": args.cpu_affinity,
+            "cpuset_housekeeping": args.cpuset_housekeeping,
+            "cpuset_shield": args.cpuset_shield,
             "host": args.host,
             "job_id": args.job_id,
             "min_time_ms": args.min_time_ms,
@@ -238,6 +240,8 @@ def main():
     metadata_parser.add_argument("--min-time-ms", type=int, required=True)
     metadata_parser.add_argument("--artifact-dir", type=pathlib.Path, required=True)
     metadata_parser.add_argument("--cpu-affinity", default="")
+    metadata_parser.add_argument("--cpuset-shield", default="")
+    metadata_parser.add_argument("--cpuset-housekeeping", default="")
     metadata_parser.add_argument("--command", required=True)
     metadata_parser.set_defaults(func=write_metadata)
 

@@ -105,6 +105,12 @@ service serves that directory on port 8080, and `cloudflared` publishes it
 through a remotely managed Cloudflare Tunnel. The tunnel token is stored in
 SOPS, not plaintext.
 
+Benchmark measurement runs use job-local system tuning rather than global CPU
+isolation. A root wrapper applies `pyperf system tune`, moves normal system
+slices to housekeeping CPUs for the benchmark command, runs `bench_bitcoin` in
+a transient cpuset on the preferred Zen 5 CPUs, and restores the system on
+exit.
+
 Continuous Guix and valgrind-fuzz jobs are best-effort latest-only jobs. Their
 watchers replace older pending queue items for the same job.
 
