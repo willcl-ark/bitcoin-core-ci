@@ -55,7 +55,7 @@ fi
 export CTEST_CMAKE_GENERATOR=Ninja
 export CTEST_CONFIGURE_PRESET="${preset}"
 
-nix develop "${job_dir}#${dev_shell}" \
+nix develop "${CI_FLAKE:?}#bitcoin-core-nightly-${dev_shell}" \
     --system x86_64-linux \
     --no-write-lock-file \
     --command bash -euo pipefail -c '

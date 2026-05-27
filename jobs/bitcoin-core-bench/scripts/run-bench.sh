@@ -81,7 +81,7 @@ python3 "${script_dir}/record-bench-results.py" write-metadata \
     --command "bin/bench_bitcoin -min-time=${BENCHMARK_MIN_TIME_MS} -output-json=${bench_json} -output-csv=${bench_csv}"
 
 cd "${job_dir}"
-nix develop "${job_dir}#gcc" \
+nix develop "${CI_FLAKE:?}#bitcoin-core-bench-gcc" \
     --system x86_64-linux \
     --no-write-lock-file \
     --command bash -euo pipefail -c '

@@ -3,23 +3,56 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     sops-nix = {
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
+    };
+    bitcoin-core-nightly = {
+      url = "path:./jobs/bitcoin-core-nightly";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+    bitcoin-core-bench = {
+      url = "path:./jobs/bitcoin-core-bench";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+    bitcoin-core-guix = {
+      url = "path:./jobs/bitcoin-core-guix";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+    bitcoin-core-valgrind-fuzz = {
+      url = "path:./jobs/bitcoin-core-valgrind-fuzz";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
   };
 
   outputs =
     {
+      self,
       nixpkgs,
       sops-nix,
+      bitcoin-core-nightly,
+      bitcoin-core-bench,
+      bitcoin-core-guix,
+      bitcoin-core-valgrind-fuzz,
       ...
     }:
+    let
+      system = "x86_64-linux";
+    in
     {
-      formatter.x86_64-linux = nixpkgs.legacyPackages.x86_64-linux.nixfmt-tree;
+      formatter.${system} = nixpkgs.legacyPackages.${system}.nixfmt-tree;
+
+      devShells.${system} = {
+        bitcoin-core-nightly-gcc = bitcoin-core-nightly.devShells.${system}.gcc;
+        bitcoin-core-nightly-libcxx = bitcoin-core-nightly.devShells.${system}.libcxx;
+        bitcoin-core-bench-gcc = bitcoin-core-bench.devShells.${system}.gcc;
+        bitcoin-core-guix = bitcoin-core-guix.devShells.${system}.default;
+        bitcoin-core-valgrind-fuzz-gcc = bitcoin-core-valgrind-fuzz.devShells.${system}.gcc;
+      };
 
       nixosConfigurations.beelink = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
+        inherit system;
         modules = [
           ./machines/beelink/hardware-configuration.nix
           (
@@ -103,6 +136,7 @@
                         CCACHE_DIR = ccacheDir;
                         CCACHE_MAXSIZE = ccacheMaxSize;
                         CDASH_BUILD_NAME_PREFIX = cdashBuildNamePrefix;
+                        CI_FLAKE = self.outPath;
                         CTEST_SITE = ctestSite;
                         WORK_DIR = workDir;
                       };
@@ -115,6 +149,13 @@
                     };
                     bitcoin-guix = {
                       command = [
+                        "${pkgs.nix}/bin/nix"
+                        "develop"
+                        "${self.outPath}#bitcoin-core-guix"
+                        "--system"
+                        system
+                        "--no-write-lock-file"
+                        "--command"
                         "${pkgs.bash}/bin/bash"
                         "${guixJob}/scripts/run-guix.sh"
                       ];
@@ -138,6 +179,7 @@
                       env = {
                         BITCOIN_REPO = valgrindFuzzBitcoinRepo;
                         BITCOIN_REPO_URL = bitcoinRepoUrl;
+                        CI_FLAKE = self.outPath;
                         CTEST_SITE = ctestSite;
                         QA_ASSETS_PATH = qaAssetsDir;
                         QA_ASSETS_REPO_URL = qaAssetsRepoUrl;
@@ -369,6 +411,7 @@
                     CCACHE_DIR = ccacheDir;
                     CCACHE_MAXSIZE = ccacheMaxSize;
                     CDASH_BUILD_NAME_PREFIX = cdashBuildNamePrefix;
+                    CI_FLAKE = self.outPath;
                     CI_JOB_KIND = "continuous";
                     CTEST_SITE = ctestSite;
                     WORK_DIR = workDir;

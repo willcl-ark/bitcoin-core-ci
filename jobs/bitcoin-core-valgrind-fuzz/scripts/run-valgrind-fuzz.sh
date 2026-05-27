@@ -21,7 +21,7 @@ git -C "${QA_ASSETS_PATH}" fetch origin
 git -C "${QA_ASSETS_PATH}" checkout -B master origin/master
 
 cd "${VALGRIND_FUZZ_JOB_DIR}"
-nix develop "${VALGRIND_FUZZ_JOB_DIR}#gcc" \
+nix develop "${CI_FLAKE:?}#bitcoin-core-valgrind-fuzz-gcc" \
     --system x86_64-linux \
     --no-write-lock-file \
     --command ctest --verbose -S scripts/valgrind-fuzz.cmake \

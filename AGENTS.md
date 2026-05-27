@@ -30,7 +30,8 @@ CMake/CTest jobs, starting with Bitcoin Core dashboard builds.
   keep tunnel/provider credentials encrypted with SOPS.
 - Let timing/instrumentation jobs opt out of ccache when cached timings would
   hide useful build-cost data.
-- Do not lock `jobs/bitcoin-core-nightly`; it should follow nightly nixpkgs.
+- Keep job flake inputs pinned by the root `flake.lock`; job flakes should
+  follow root inputs rather than carrying independent locks.
 - Treat VMs as a future job implementation detail, not a first requirement.
 - Do not commit secrets, tokens, private machine data, or CDash credentials.
 - Review diffs before presenting work.

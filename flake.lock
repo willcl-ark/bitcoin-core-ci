@@ -1,5 +1,69 @@
 {
   "nodes": {
+    "bitcoin-core-bench": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs-unstable"
+        ]
+      },
+      "locked": {
+        "path": "./jobs/bitcoin-core-bench",
+        "type": "path"
+      },
+      "original": {
+        "path": "./jobs/bitcoin-core-bench",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "bitcoin-core-guix": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs-unstable"
+        ]
+      },
+      "locked": {
+        "path": "./jobs/bitcoin-core-guix",
+        "type": "path"
+      },
+      "original": {
+        "path": "./jobs/bitcoin-core-guix",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "bitcoin-core-nightly": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs-unstable"
+        ]
+      },
+      "locked": {
+        "path": "./jobs/bitcoin-core-nightly",
+        "type": "path"
+      },
+      "original": {
+        "path": "./jobs/bitcoin-core-nightly",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "bitcoin-core-valgrind-fuzz": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs-unstable"
+        ]
+      },
+      "locked": {
+        "path": "./jobs/bitcoin-core-valgrind-fuzz",
+        "type": "path"
+      },
+      "original": {
+        "path": "./jobs/bitcoin-core-valgrind-fuzz",
+        "type": "path"
+      },
+      "parent": []
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1778430510,
@@ -16,9 +80,30 @@
         "type": "github"
       }
     },
+    "nixpkgs-unstable": {
+      "locked": {
+        "lastModified": 1779786838,
+        "narHash": "sha256-0geHoGiR5f8qiXg+gO4rSF6Up6Var+kKqiOv9AO/uUc=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "f44f7788c891fbe5542177df78374f8cdab10e8f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
+        "bitcoin-core-bench": "bitcoin-core-bench",
+        "bitcoin-core-guix": "bitcoin-core-guix",
+        "bitcoin-core-nightly": "bitcoin-core-nightly",
+        "bitcoin-core-valgrind-fuzz": "bitcoin-core-valgrind-fuzz",
         "nixpkgs": "nixpkgs",
+        "nixpkgs-unstable": "nixpkgs-unstable",
         "sops-nix": "sops-nix"
       }
     },

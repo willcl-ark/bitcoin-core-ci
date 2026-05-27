@@ -78,12 +78,13 @@ Each job should have:
 Job scripts should stay small wrappers around CTest, close to:
 
 ```sh
-nix develop /etc/ci/jobs/bitcoin-core-nightly#gcc \
+nix develop /etc/ci#bitcoin-core-nightly-gcc \
   --command ctest -S scripts/build-unit-test.cmake -V
 ```
 
 The Beelink nightly job uses the native `x86_64-linux` `gcc` and `libcxx`
-shells from `bitcoin-core-nightly`, with per-job CMake presets for the debug
+shells from `bitcoin-core-nightly`, exposed through the root flake so the root
+`flake.lock` owns job dependency pins. Per-job CMake presets define the debug
 libstdc++ and hardened libc++ variants. The final GCC job enables CTest build
 instrumentation for CDash timing data. The nightly variants run sequentially
 inside one queued job.
