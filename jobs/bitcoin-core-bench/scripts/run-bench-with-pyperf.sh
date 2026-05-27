@@ -15,12 +15,19 @@ pyperf_prefix="${BENCHMARK_ARTIFACT_ROOT}/system/${run_id}"
 reset_pyperf() {
     set +e
     python3 -m pyperf system reset >"${pyperf_prefix}-reset.log" 2>&1
+    echo "$?" >"${pyperf_prefix}-reset.status"
     python3 -m pyperf system show >"${pyperf_prefix}-after.log" 2>&1
 }
 trap reset_pyperf EXIT
 
 python3 -m pyperf system show >"${pyperf_prefix}-before.log" 2>&1
-python3 -m pyperf system tune >"${pyperf_prefix}-tune.log" 2>&1
+if python3 -m pyperf system tune --affinity="${BENCHMARK_CPU_AFFINITY}" >"${pyperf_prefix}-tune.log" 2>&1; then
+    echo 0 >"${pyperf_prefix}-tune.status"
+else
+    tune_status=$?
+    echo "${tune_status}" >"${pyperf_prefix}-tune.status"
+    echo "pyperf system tune exited with ${tune_status}; see ${pyperf_prefix}-tune.log" >&2
+fi
 
 runuser -u ci-runner -- \
     env \
