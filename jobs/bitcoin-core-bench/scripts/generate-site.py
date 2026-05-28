@@ -2,8 +2,8 @@
 import argparse
 import json
 import pathlib
-import shutil
 import sqlite3
+import tempfile
 
 
 SITE_DIR = pathlib.Path(__file__).resolve().parents[1] / "site"
@@ -58,6 +58,24 @@ def write_json(path, value):
     tmp.replace(path)
 
 
+def replace_file(path, data):
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as f:
+            f.write(data)
+            tmp = pathlib.Path(f.name)
+        tmp.chmod(0o644)
+        tmp.replace(path)
+    finally:
+        if tmp is not None and tmp.exists():
+            tmp.unlink()
+
+
 def asset_version(value):
     return "".join(ch for ch in value if ch.isalnum())
 
@@ -68,11 +86,12 @@ def copy_assets(output_dir, version):
             continue
         output = output_dir / asset.name
         if asset.name == "index.html":
-            output.write_text(
-                asset.read_text().replace("__ASSET_VERSION__", version)
+            replace_file(
+                output,
+                asset.read_text().replace("__ASSET_VERSION__", version).encode(),
             )
         else:
-            shutil.copy2(asset, output)
+            replace_file(output, asset.read_bytes())
 
 
 def generate(args):
