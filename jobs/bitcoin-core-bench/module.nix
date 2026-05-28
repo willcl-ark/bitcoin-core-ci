@@ -46,11 +46,15 @@ let
       set -euo pipefail
 
       tmp="${benchmarkRunEnv}.$$"
+      kind="''${CI_JOB_KIND:-continuous}"
       umask 077
       {
         printf 'CI_JOB_ID=%q\n' "''${CI_JOB_ID}"
-        printf 'CI_JOB_KIND=%q\n' "''${CI_JOB_KIND:-continuous}"
+        printf 'CI_JOB_KIND=%q\n' "$kind"
         printf 'CI_REVISION=%q\n' "''${CI_REVISION:-}"
+        if [ "$kind" = backfill-sample ]; then
+          printf 'BENCHMARK_RUN_COUNT=1\n'
+        fi
       } > "$tmp"
       mv "$tmp" "${benchmarkRunEnv}"
 
@@ -124,6 +128,7 @@ in
         BENCHMARK_CPUSET_SHIELD = benchmarkCpusetShield;
         BENCHMARK_DB = benchmarkDb;
         BENCHMARK_MIN_TIME_MS = "1000";
+        BENCHMARK_RUN_COUNT = "5";
         BENCHMARK_SITE_DIR = benchmarkSiteDir;
         BITCOIN_REPO = benchBitcoinRepo;
         BITCOIN_REPO_URL = ci.bitcoinRepoUrl;

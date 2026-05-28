@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS runs (
     preset TEXT NOT NULL,
     min_time_ms INTEGER NOT NULL,
     artifact_dir TEXT NOT NULL,
-    command TEXT NOT NULL
+    command TEXT NOT NULL,
+    sample_index INTEGER NOT NULL DEFAULT 1,
+    sample_count INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS results (
@@ -68,6 +70,8 @@ def write_metadata(args):
             "min_time_ms": args.min_time_ms,
             "preset": args.preset,
             "run_time": args.run_time,
+            "sample_count": args.sample_count,
+            "sample_index": args.sample_index,
         },
     )
 
@@ -124,6 +128,10 @@ def ensure_schema(conn):
     if "commit_time" not in columns:
         conn.execute("ALTER TABLE runs ADD COLUMN commit_time TEXT")
         conn.execute("UPDATE runs SET commit_time = run_time WHERE commit_time IS NULL")
+    if "sample_index" not in columns:
+        conn.execute("ALTER TABLE runs ADD COLUMN sample_index INTEGER NOT NULL DEFAULT 1")
+    if "sample_count" not in columns:
+        conn.execute("ALTER TABLE runs ADD COLUMN sample_count INTEGER NOT NULL DEFAULT 1")
 
 
 def insert_run(conn, metadata):
@@ -133,8 +141,8 @@ def insert_run(conn, metadata):
         """
         INSERT INTO runs (
             job_id, commit_hash, commit_time, run_time, host, compiler, preset,
-            min_time_ms, artifact_dir, command
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            min_time_ms, artifact_dir, command, sample_index, sample_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(job_id) DO UPDATE SET
             commit_hash = excluded.commit_hash,
             commit_time = excluded.commit_time,
@@ -144,7 +152,9 @@ def insert_run(conn, metadata):
             preset = excluded.preset,
             min_time_ms = excluded.min_time_ms,
             artifact_dir = excluded.artifact_dir,
-            command = excluded.command
+            command = excluded.command,
+            sample_index = excluded.sample_index,
+            sample_count = excluded.sample_count
         RETURNING id
         """,
         (
@@ -158,6 +168,8 @@ def insert_run(conn, metadata):
             metadata["min_time_ms"],
             metadata["artifact_dir"],
             metadata["command"],
+            metadata.get("sample_index", 1),
+            metadata.get("sample_count", 1),
         ),
     )
     return cursor.fetchone()[0]
@@ -250,6 +262,8 @@ def main():
     metadata_parser.add_argument("--commit", required=True)
     metadata_parser.add_argument("--commit-time", required=True)
     metadata_parser.add_argument("--run-time", required=True)
+    metadata_parser.add_argument("--sample-index", type=int, default=1)
+    metadata_parser.add_argument("--sample-count", type=int, default=1)
     metadata_parser.add_argument("--host", required=True)
     metadata_parser.add_argument("--compiler", required=True)
     metadata_parser.add_argument("--preset", required=True)

@@ -63,8 +63,14 @@ export BENCHMARK_CSV="${bench_csv}"
 export BENCHMARK_METADATA="${metadata_file}"
 export BENCHMARK_CPU_AFFINITY="${BENCHMARK_CPU_AFFINITY:-}"
 export BENCHMARK_MIN_TIME_MS="${BENCHMARK_MIN_TIME_MS:-1000}"
+export BENCHMARK_RUN_COUNT="${BENCHMARK_RUN_COUNT:-5}"
 export CDASH_BUILD_NAME_PREFIX
 export CDASH_BUILD_NAME_SUFFIX=bench
+
+if [ "${BENCHMARK_RUN_COUNT}" -lt 1 ]; then
+    echo "BENCHMARK_RUN_COUNT must be at least 1" >&2
+    exit 1
+fi
 
 python3 "${script_dir}/record-bench-results.py" write-metadata \
     --metadata "${metadata_file}" \
@@ -72,6 +78,8 @@ python3 "${script_dir}/record-bench-results.py" write-metadata \
     --commit "${commit}" \
     --commit-time "${commit_time}" \
     --run-time "${run_time}" \
+    --sample-index 0 \
+    --sample-count "${BENCHMARK_RUN_COUNT}" \
     --host "${CTEST_SITE}" \
     --compiler gcc \
     --preset bench \
@@ -80,7 +88,7 @@ python3 "${script_dir}/record-bench-results.py" write-metadata \
     --cpu-affinity "${BENCHMARK_CPU_AFFINITY}" \
     --cpuset-shield "${BENCHMARK_CPUSET_SHIELD:-}" \
     --cpuset-housekeeping "${BENCHMARK_CPUSET_HOUSEKEEPING:-}" \
-    --command "bench_bitcoin -min-time=${BENCHMARK_MIN_TIME_MS} -output-json=${bench_json} -output-csv=${bench_csv}"
+    --command "${BENCHMARK_RUN_COUNT} x bench_bitcoin -min-time=${BENCHMARK_MIN_TIME_MS}"
 
 cd "${job_dir}"
 nix develop "${CI_FLAKE:?}#bitcoin-core-bench-gcc" \
@@ -123,21 +131,56 @@ if [ -n "${BENCHMARK_CPUSET_SHIELD:-}" ]; then
     )
 fi
 
-"${bench_command[@]}" \
-    -min-time="${BENCHMARK_MIN_TIME_MS}" \
-    -output-json="${bench_json}" \
-    -output-csv="${bench_csv}" \
-    2>&1 | tee "${bench_log}"
+for sample_index in $(seq 1 "${BENCHMARK_RUN_COUNT}"); do
+    sample_name=$(printf "sample-%02d" "${sample_index}")
+    sample_dir="${artifact_dir}/${sample_name}"
+    mkdir -p "${sample_dir}"
+    sample_metadata="${sample_dir}/metadata.json"
+    sample_json="${sample_dir}/bench.json"
+    sample_log="${sample_dir}/bench.log"
+    sample_csv="${sample_dir}/bench.csv"
 
-if [ ! -s "${bench_json}" ]; then
-    echo "benchmark JSON was not produced: ${bench_json}" >&2
-    exit 1
-fi
+    python3 "${script_dir}/record-bench-results.py" write-metadata \
+        --metadata "${sample_metadata}" \
+        --job-id "${CI_JOB_ID}-${sample_name}" \
+        --commit "${commit}" \
+        --commit-time "${commit_time}" \
+        --run-time "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+        --sample-index "${sample_index}" \
+        --sample-count "${BENCHMARK_RUN_COUNT}" \
+        --host "${CTEST_SITE}" \
+        --compiler gcc \
+        --preset bench \
+        --min-time-ms "${BENCHMARK_MIN_TIME_MS}" \
+        --artifact-dir "${artifact_dir}" \
+        --cpu-affinity "${BENCHMARK_CPU_AFFINITY}" \
+        --cpuset-shield "${BENCHMARK_CPUSET_SHIELD:-}" \
+        --cpuset-housekeeping "${BENCHMARK_CPUSET_HOUSEKEEPING:-}" \
+        --command "bench_bitcoin -min-time=${BENCHMARK_MIN_TIME_MS} -output-json=${sample_json} -output-csv=${sample_csv}"
 
-python3 "${script_dir}/record-bench-results.py" record \
-    --db "${BENCHMARK_DB}" \
-    --metadata "${metadata_file}" \
-    --bench-json "${bench_json}"
+    {
+        printf '== %s/%s %s ==\n' "${sample_index}" "${BENCHMARK_RUN_COUNT}" "${sample_name}"
+        "${bench_command[@]}" \
+            -min-time="${BENCHMARK_MIN_TIME_MS}" \
+            -output-json="${sample_json}" \
+            -output-csv="${sample_csv}"
+    } 2>&1 | tee "${sample_log}" | tee -a "${bench_log}"
+
+    if [ ! -s "${sample_json}" ]; then
+        echo "benchmark JSON was not produced: ${sample_json}" >&2
+        exit 1
+    fi
+
+    if [ "${sample_index}" -eq 1 ]; then
+        cp "${sample_json}" "${bench_json}"
+        cp "${sample_csv}" "${bench_csv}"
+    fi
+
+    python3 "${script_dir}/record-bench-results.py" record \
+        --db "${BENCHMARK_DB}" \
+        --metadata "${sample_metadata}" \
+        --bench-json "${sample_json}"
+done
 
 python3 "${script_dir}/generate-site.py" \
     --db "${BENCHMARK_DB}" \

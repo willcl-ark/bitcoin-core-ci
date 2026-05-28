@@ -3,6 +3,7 @@ import argparse
 import json
 import pathlib
 import sqlite3
+import statistics
 import tempfile
 
 
@@ -16,6 +17,10 @@ def ensure_schema(conn):
     if "commit_time" not in columns:
         conn.execute("ALTER TABLE runs ADD COLUMN commit_time TEXT")
         conn.execute("UPDATE runs SET commit_time = run_time WHERE commit_time IS NULL")
+    if "sample_index" not in columns:
+        conn.execute("ALTER TABLE runs ADD COLUMN sample_index INTEGER NOT NULL DEFAULT 1")
+    if "sample_count" not in columns:
+        conn.execute("ALTER TABLE runs ADD COLUMN sample_count INTEGER NOT NULL DEFAULT 1")
 
 
 def query_rows(conn):
@@ -32,6 +37,7 @@ def query_rows(conn):
                 runs.compiler,
                 runs.preset,
                 runs.min_time_ms,
+                runs.artifact_dir,
                 results.benchmark,
                 results.unit,
                 results.batch,
@@ -41,13 +47,77 @@ def query_rows(conn):
                 results.min_elapsed,
                 results.max_elapsed,
                 results.median_elapsed,
-                results.mdape_elapsed
+                results.mdape_elapsed,
+                runs.sample_index,
+                runs.sample_count
             FROM results
             JOIN runs ON runs.id = results.run_id
             ORDER BY results.benchmark, runs.commit_time, results.row_index
             """
         )
     ]
+
+
+def median_or_none(values):
+    present = [value for value in values if value is not None]
+    if not present:
+        return None
+    return statistics.median(present)
+
+
+def aggregate_rows(rows):
+    groups = {}
+    for row in rows:
+        key = (
+            row["commit_hash"],
+            row["host"],
+            row["compiler"],
+            row["preset"],
+            row["min_time_ms"],
+            row["benchmark"],
+        )
+        groups.setdefault(key, []).append(row)
+
+    aggregated = []
+    for samples in groups.values():
+        samples.sort(key=lambda row: (row["sample_index"], row["job_id"]))
+        first = samples[0]
+        median_values = [
+            row["median_elapsed"]
+            for row in samples
+            if row["median_elapsed"] is not None
+        ]
+        sample_count = len(median_values)
+        row = dict(first)
+        row["job_id"] = ",".join(row["job_id"] for row in samples)
+        row["run_time"] = max(row["run_time"] for row in samples)
+        row["sample_index"] = None
+        row["sample_count"] = sample_count
+        row["raw_sample_count"] = len(samples)
+        row["total_elapsed"] = median_or_none(row["total_elapsed"] for row in samples)
+        row["min_elapsed"] = min(
+            (row["min_elapsed"] for row in samples if row["min_elapsed"] is not None),
+            default=None,
+        )
+        row["max_elapsed"] = max(
+            (row["max_elapsed"] for row in samples if row["max_elapsed"] is not None),
+            default=None,
+        )
+        row["median_elapsed"] = median_or_none(median_values)
+        row["mdape_elapsed"] = median_or_none(row["mdape_elapsed"] for row in samples)
+        if sample_count >= 2:
+            sample_median = row["median_elapsed"]
+            row["mad_elapsed"] = statistics.median(
+                abs(value - sample_median) for value in median_values
+            )
+        else:
+            row["mad_elapsed"] = None
+        aggregated.append(row)
+
+    return sorted(
+        aggregated,
+        key=lambda row: (row["benchmark"], row["commit_time"], row["commit_hash"]),
+    )
 
 
 def write_json(path, value):
@@ -99,7 +169,8 @@ def generate(args):
     with sqlite3.connect(args.db) as conn:
         conn.row_factory = sqlite3.Row
         ensure_schema(conn)
-        rows = query_rows(conn)
+        sample_rows = query_rows(conn)
+        rows = aggregate_rows(sample_rows)
         runs = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
 
     write_json(args.output_dir / "results.json", rows)
@@ -109,6 +180,7 @@ def generate(args):
             "generated_at": args.generated_at,
             "results": len(rows),
             "runs": runs,
+            "samples": len(sample_rows),
         },
     )
     copy_assets(args.output_dir, asset_version(args.generated_at))
