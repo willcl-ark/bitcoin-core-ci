@@ -83,6 +83,25 @@ async function copyCommitHash(point) {
   return true;
 }
 
+async function copyCommitRange(segment) {
+  if (!segment) return false;
+  const dataset = chart?.data?.datasets?.[segment.datasetIndex];
+  const from = dataset?.data?.[segment.fromIndex];
+  const to = dataset?.data?.[segment.toIndex];
+  if (!from?.commitHash || !to?.commitHash) return false;
+
+  const range = `${from.commitHash}..${to.commitHash}`;
+  try {
+    await writeClipboard(range);
+    showChartStatus(`Copied ${from.commit}..${to.commit}`);
+    showToast(to.y > from.y ? "Copied slowdown range" : "Copied range");
+  } catch (error) {
+    showChartStatus(`Copy failed: ${range}`);
+    showToast("Copy failed");
+  }
+  return true;
+}
+
 function colorWithAlpha(color, alpha) {
   const hex = color.replace("#", "");
   const red = parseInt(hex.slice(0, 2), 16);
@@ -122,6 +141,35 @@ function nearestChartSeries(event, elements) {
     }
   });
   return best.label;
+}
+
+function nearestChartSegment(event) {
+  let best = null;
+  chart.data.datasets.forEach((dataset, datasetIndex) => {
+    if (!chart.isDatasetVisible(datasetIndex)) return;
+    const points = chart.getDatasetMeta(datasetIndex).data;
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      const distance = pointSegmentDistance(
+        event.x,
+        event.y,
+        previous.x,
+        previous.y,
+        current.x,
+        current.y,
+      );
+      if (distance < (best?.distance ?? 10)) {
+        best = {
+          datasetIndex,
+          fromIndex: index - 1,
+          toIndex: index,
+          distance,
+        };
+      }
+    }
+  });
+  return best;
 }
 
 function seriesColor(index) {
@@ -519,6 +567,7 @@ function render() {
       onClick: async (event, elements) => {
         const points = chart.getElementsAtEventForMode(event.native || event, "nearest", { intersect: true }, true);
         if (await copyCommitHash(points[0])) return;
+        if (await copyCommitRange(nearestChartSegment(event))) return;
         const series = nearestChartSeries(event, elements);
         if (series) focusSeries(series, true);
       },
