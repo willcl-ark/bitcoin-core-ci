@@ -27,6 +27,49 @@ function chartTime(row) { return row.commit_time || row.run_time; }
 function focusedSeries() { return seriesFocus.pinned || seriesFocus.hovered; }
 function pinnedSeries() { return seriesFocus.pinned; }
 
+function showChartStatus(message) {
+  const selection = document.getElementById("chart-selection");
+  const clear = pinnedSeries() ? document.createElement("button") : null;
+  if (clear) {
+    clear.type = "button";
+    clear.textContent = "Clear";
+    clear.addEventListener("click", clearPinnedSeries);
+  }
+  selection.replaceChildren(document.createTextNode(message), ...(clear ? [clear] : []));
+}
+
+async function writeClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.setAttribute("readonly", "");
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    if (!document.execCommand("copy")) throw new Error("copy command failed");
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function copyCommitHash(point) {
+  const commitHash = chart?.data?.datasets?.[point?.datasetIndex]?.data?.[point?.index]?.commitHash;
+  if (!commitHash) return false;
+  try {
+    await writeClipboard(commitHash);
+    showChartStatus(`Copied ${commitHash.slice(0, 12)}`);
+  } catch (error) {
+    showChartStatus(`Copy failed: ${commitHash}`);
+  }
+  return true;
+}
+
 function colorWithAlpha(color, alpha) {
   const hex = color.replace("#", "");
   const red = parseInt(hex.slice(0, 2), 16);
@@ -433,6 +476,7 @@ function render() {
         x: chartTime(row),
         y: row[metric],
         commit: row.commit_hash.slice(0, 12),
+        commitHash: row.commit_hash,
         jobId: row.job_id,
         runTime: row.run_time,
       })),
@@ -459,7 +503,9 @@ function render() {
       onHover: (event, elements) => {
         hoverSeries(nearestChartSeries(event, elements));
       },
-      onClick: (event, elements) => {
+      onClick: async (event, elements) => {
+        const points = chart.getElementsAtEventForMode(event.native || event, "nearest", { intersect: true }, true);
+        if (await copyCommitHash(points[0])) return;
         const series = nearestChartSeries(event, elements);
         if (series) focusSeries(series, true);
       },
