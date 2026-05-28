@@ -3,6 +3,7 @@ const minTrendRuns = 7;
 const metric = "median_elapsed";
 const seriesFocus = { hovered: null, pinned: null };
 let chart;
+let toastTimer;
 
 Chart.Tooltip.positioners.offset = (_elements, eventPosition) => ({
   x: eventPosition.x + 18,
@@ -38,6 +39,16 @@ function showChartStatus(message) {
   selection.replaceChildren(document.createTextNode(message), ...(clear ? [clear] : []));
 }
 
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.classList.add("toast-visible");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.classList.remove("toast-visible");
+  }, 1600);
+}
+
 async function writeClipboard(text) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -64,8 +75,10 @@ async function copyCommitHash(point) {
   try {
     await writeClipboard(commitHash);
     showChartStatus(`Copied ${commitHash.slice(0, 12)}`);
+    showToast("Copied");
   } catch (error) {
     showChartStatus(`Copy failed: ${commitHash}`);
+    showToast("Copy failed");
   }
   return true;
 }

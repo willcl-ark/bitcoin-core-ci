@@ -327,6 +327,30 @@ input[type="number"] {
 
 .summary { margin-top: 16px; color: var(--muted); font-size: 14px; }
 
+.toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 10;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--text) 18%, transparent);
+  font-size: 14px;
+  font-weight: 700;
+  opacity: 0;
+  padding: 10px 14px;
+  transform: translateY(8px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.toast-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 @media (max-width: 900px) {
   .overview-grid { grid-template-columns: 1fr; }
   .trend-grid { grid-template-columns: 1fr; }
