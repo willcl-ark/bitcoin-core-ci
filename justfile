@@ -85,6 +85,17 @@ bench-site-preview host=default_host port=bench_preview_port:
         --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     python3 -m http.server {{port}} --bind 127.0.0.1 --directory {{bench_preview_dir}}/site
 
+# Copy static benchmark dashboard assets to the live machine without rebuilding
+[group('live')]
+bench-site-update host=default_host:
+    rsync -av \
+        --chown=ci-runner:ci-runner \
+        --chmod=F644 \
+        jobs/bitcoin-core-bench/site/app.js \
+        jobs/bitcoin-core-bench/site/index.html \
+        jobs/bitcoin-core-bench/site/style.css \
+        {{host}}:/var/lib/ci-runner/benchmarks/bitcoin-core/site/
+
 # Stop all CI services
 services command host=default_host:
     ssh {{host}} "systemctl {{command}} \
