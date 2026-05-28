@@ -46,7 +46,8 @@ logs host=default_host:
         -u ci-runner.service \
         -u ci-nightly-bitcoin-enqueue.service \
         -u ci-watch-bitcoin-guix.service \
-        -u ci-watch-bitcoin-valgrind-fuzz.service"
+        -u ci-watch-bitcoin-valgrind-fuzz.service \
+        -u ci-bitcoin-bench-run.service"
 
 # Enqueue the full Bitcoin Core nightly job
 [group('live')]
@@ -60,7 +61,8 @@ status host=default_host:
         ci-runner.service \
         ci-nightly-bitcoin-enqueue.service \
         ci-watch-bitcoin-guix.service \
-        ci-watch-bitcoin-valgrind-fuzz.service"
+        ci-watch-bitcoin-valgrind-fuzz.service \
+        ci-bitcoin-bench-run.service"
 
 # Backward-compatible alias for the old nightly status helper
 [group('live')]
@@ -82,3 +84,12 @@ bench-site-preview host=default_host port=bench_preview_port:
         --output-dir {{bench_preview_dir}}/site \
         --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     python3 -m http.server {{port}} --bind 127.0.0.1 --directory {{bench_preview_dir}}/site
+
+# Stop all CI services
+services command host=default_host:
+    ssh {{host}} "systemctl {{command}} \
+        ci-runner.service \
+        ci-nightly-bitcoin-enqueue.service \
+        ci-watch-bitcoin-guix.service \
+        ci-watch-bitcoin-valgrind-fuzz.service \
+        ci-bitcoin-bench-run.service"
