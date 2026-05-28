@@ -90,10 +90,10 @@ async function copyCommitRange(segment) {
   const to = dataset?.data?.[segment.toIndex];
   if (!from?.commitHash || !to?.commitHash) return false;
 
-  const range = `${from.commitHash}..${to.commitHash}`;
+  const range = `${from.commitHash}...${to.commitHash}`;
   try {
     await writeClipboard(range);
-    showChartStatus(`Copied ${from.commit}..${to.commit}`);
+    showChartStatus(`Copied ${from.commit}...${to.commit}`);
     showToast(to.y > from.y ? "Copied slowdown range" : "Copied range");
   } catch (error) {
     showChartStatus(`Copy failed: ${range}`);
