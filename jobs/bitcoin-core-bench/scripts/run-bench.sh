@@ -80,7 +80,7 @@ python3 "${script_dir}/record-bench-results.py" write-metadata \
     --cpu-affinity "${BENCHMARK_CPU_AFFINITY}" \
     --cpuset-shield "${BENCHMARK_CPUSET_SHIELD:-}" \
     --cpuset-housekeeping "${BENCHMARK_CPUSET_HOUSEKEEPING:-}" \
-    --command "bin/bench_bitcoin -min-time=${BENCHMARK_MIN_TIME_MS} -output-json=${bench_json} -output-csv=${bench_csv}"
+    --command "bench_bitcoin -min-time=${BENCHMARK_MIN_TIME_MS} -output-json=${bench_json} -output-csv=${bench_csv}"
 
 cd "${job_dir}"
 nix develop "${CI_FLAKE:?}#bitcoin-core-bench-gcc" \
@@ -93,7 +93,22 @@ nix develop "${CI_FLAKE:?}#bitcoin-core-bench-gcc" \
             -DCTEST_SITE="$2"
     ' bash "${worktree}" "${CTEST_SITE}"
 
-bench_command=("${worktree}/build-bench/bin/bench_bitcoin")
+bench_binary=""
+for candidate in \
+    "${worktree}/build-bench/bin/bench_bitcoin" \
+    "${worktree}/build-bench/src/bench/bench_bitcoin"
+do
+    if [ -x "${candidate}" ]; then
+        bench_binary="${candidate}"
+        break
+    fi
+done
+if [ -z "${bench_binary}" ]; then
+    echo "bench_bitcoin binary was not produced in a known output path" >&2
+    exit 1
+fi
+
+bench_command=("${bench_binary}")
 if [ -n "${BENCHMARK_CPU_AFFINITY}" ]; then
     bench_command=(taskset -c "${BENCHMARK_CPU_AFFINITY}" "${bench_command[@]}")
 fi
