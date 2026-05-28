@@ -84,8 +84,46 @@
   page width. The table and heatmap hide useful scan data when constrained to
   half-width columns.
 - The bottom benchmark chart defaults to an `All` selection that renders one
-  Plotly series per benchmark. Selecting a table row switches back to the
+  Chart.js series per benchmark. Selecting a table row switches back to the
   individual benchmark view.
 - The benchmark dashboard HTML, CSS, and JavaScript live under
   `jobs/bitcoin-core-bench/site/`. `generate-site.py` owns SQLite-to-JSON
   export and copies those static assets into the served site directory.
+- Dashboard asset publishing writes fresh temporary files and renames them into
+  place instead of preserving Nix store file modes. This keeps regenerated site
+  assets writable by `ci-runner` across repeated benchmark runs.
+- `run-bench.sh` resolves `bench_bitcoin` from both the current
+  `build-bench/bin/` output path and the older `build-bench/src/bench/` path
+  used by historical Bitcoin Core commits, so backfills can run across the
+  CMake layout change.
+- The benchmark dashboard uses Chart.js for the main trend chart. The heatmap
+  remains a local DOM grid so large slowdowns can be emphasized without adding a
+  second charting dependency.
+- The benchmark chart has a search filter that switches the chart to all
+  matching benchmark series, so typing a term such as `wallet` narrows the
+  all-series view without changing the overview table or heatmap.
+- Benchmark runs record both commit time and benchmark run time. The dashboard
+  plots chart and heatmap history by commit time so backfilled older commits
+  appear in source chronology, while run time remains available in chart
+  tooltips and artifact names.
+- Monthly benchmark history is backfilled by enqueueing fixed commit IDs as
+  `bitcoin-bench` queue items with `CI_JOB_KIND=backfill`. The normal queue
+  runner still serializes the jobs and `run-bench.sh` checks out each supplied
+  `CI_REVISION`.
+- The chart keeps benchmark selection separate from chart view: benchmark
+  `All` remains literal. The default `Movers` view can be scoped to recent or
+  all-time history, filtered to speedups, slowdowns, or both, and capped by a
+  configurable series count. Users can switch the chart view to `All series`
+  for the full set.
+- The chart and overview use median elapsed only. The current benchmark JSON
+  has median elapsed and mdape populated, but minimum, maximum, and total
+  elapsed are null, so exposing those metrics made the chart controls look
+  broken.
+- The heatmap lives below the chart as an unboxed full-height section. This
+  keeps the high-density scan view close to the chart while avoiding nested
+  scroll regions inside a panel.
+- Dense chart inspection uses click-to-pin focus instead of visibility toggles.
+  Hovering a chart line segment or series-list item labels that series without
+  dimming the chart; clicking pins it and dims the other lines until cleared.
+  The Chart.js tooltip is offset from the pointer so it does not hide the
+  hovered line.
