@@ -1,8 +1,15 @@
-const state = { rows: [], metadata: {} };
+const state = {
+  rows: [],
+  metadata: {},
+  summary: { benchmarks: [], heatmap: {}, overview: [], series: [] },
+  seriesRows: new Map(),
+};
 const minTrendRuns = 7;
 const metric = "median_elapsed";
 const seriesFocus = { hovered: null, pinned: null };
 let chart;
+let fullRowsPromise;
+let renderToken = 0;
 let toastTimer;
 
 Chart.Tooltip.positioners.offset = (_elements, eventPosition) => ({
@@ -27,6 +34,7 @@ function cssColor(name) { return getComputedStyle(document.documentElement).getP
 function chartTime(row) { return row.commit_time || row.run_time; }
 function focusedSeries() { return seriesFocus.pinned || seriesFocus.hovered; }
 function pinnedSeries() { return seriesFocus.pinned; }
+function needsFullHistory(limit, moverRange) { return limit === 0 || limit > (state.summary.recent_run_count || 90) || moverRange === "all-time"; }
 
 function showChartStatus(message) {
   const selection = document.getElementById("chart-selection");
@@ -197,8 +205,12 @@ function heatmapSeverityClass(value) {
 }
 
 function byBenchmark(metric) {
+  return byBenchmarkRows(state.rows, metric);
+}
+
+function byBenchmarkRows(rows, metric) {
   const groups = new Map();
-  for (const row of state.rows) {
+  for (const row of rows) {
     if (row[metric] === null || row[metric] === undefined) continue;
     if (!groups.has(row.benchmark)) groups.set(row.benchmark, []);
     groups.get(row.benchmark).push(row);
@@ -299,6 +311,10 @@ function renderSeriesFocus() {
 
 function sparkline(rows, metric) {
   const values = rows.map((row) => row[metric]).filter((value) => value !== null && value !== undefined);
+  return sparklineValues(values);
+}
+
+function sparklineValues(values) {
   if (values.length < 2) return "";
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -313,7 +329,7 @@ function sparkline(rows, metric) {
 }
 
 function populate() {
-  const benchmarks = unique(state.rows.map((row) => row.benchmark));
+  const benchmarks = state.summary.benchmarks || unique(state.rows.map((row) => row.benchmark));
   const select = document.getElementById("benchmark");
   const allOption = document.createElement("option");
   allOption.value = "__all__";
@@ -328,6 +344,42 @@ function populate() {
   document.getElementById("run-count").textContent = `${state.metadata.runs || 0} runs, ${state.metadata.results || 0} results`;
 }
 
+async function fetchJson(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`failed to load ${path}: ${response.status}`);
+  return response.json();
+}
+
+async function loadFullRows() {
+  if (!fullRowsPromise) {
+    document.getElementById("summary").textContent = "Loading full benchmark history...";
+    fullRowsPromise = fetchJson("results.json").then((rows) => {
+      state.rows = rows;
+      return rows;
+    });
+  }
+  return fullRowsPromise;
+}
+
+async function loadSeriesRows(benchmark) {
+  if (state.seriesRows.has(benchmark)) return state.seriesRows.get(benchmark);
+  const entry = (state.summary.series || []).find((item) => item.benchmark === benchmark);
+  if (!entry) return [];
+  const rows = await fetchJson(entry.path);
+  state.seriesRows.set(benchmark, rows);
+  return rows;
+}
+
+async function rowsForChart(benchmark, filterText, limit, moverRange) {
+  const needFull = needsFullHistory(limit, moverRange);
+  if (benchmark !== "__all__" && !filterText.trim()) {
+    const rows = needFull ? await loadSeriesRows(benchmark) : state.rows.filter((row) => row.benchmark === benchmark);
+    return byBenchmarkRows(rows, metric);
+  }
+  if (needFull) await loadFullRows();
+  return byBenchmark(metric);
+}
+
 function updateTrendCard(id, item, metric) {
   const card = document.getElementById(id);
   card.disabled = !item;
@@ -339,22 +391,14 @@ function updateTrendCard(id, item, metric) {
   card.onclick = item
     ? () => {
         document.getElementById("benchmark").value = item.benchmark;
-        render();
+        queueRender();
         document.getElementById("chart").scrollIntoView({ block: "nearest" });
       }
     : null;
 }
 
 function renderOverview() {
-  const groups = byBenchmark(metric);
-  const items = [];
-  for (const [benchmark, rows] of groups.entries()) {
-    const latest = rows.at(-1);
-    const previous = rows.length > 1 ? rows.at(-2) : null;
-    const delta = previous ? pctDelta(latest[metric], previous[metric]) : null;
-    items.push({ benchmark, rows, latest, previous, delta });
-  }
-  items.sort((a, b) => Math.abs(b.delta ?? -1) - Math.abs(a.delta ?? -1) || a.benchmark.localeCompare(b.benchmark));
+  const items = state.summary.overview || [];
 
   const enoughRuns = (state.metadata.runs || 0) >= minTrendRuns;
   document.getElementById("overview-note").textContent = enoughRuns
@@ -385,12 +429,12 @@ function renderOverview() {
     deltaCell.textContent = pct(item.delta);
 
     const trendCell = document.createElement("td");
-    trendCell.innerHTML = sparkline(item.rows.slice(-30), metric);
+    trendCell.innerHTML = sparklineValues(item.sparkline || []);
 
     tr.replaceChildren(nameCell, latestCell, previousCell, deltaCell, trendCell);
     tr.addEventListener("click", () => {
       document.getElementById("benchmark").value = item.benchmark;
-      render();
+      queueRender();
       document.getElementById("chart").scrollIntoView({ block: "nearest" });
     });
     return tr;
@@ -398,12 +442,13 @@ function renderOverview() {
 }
 
 function renderHeatmap() {
-  const runTimes = unique(state.rows.map((row) => chartTime(row)));
-  const groups = byBenchmark(metric);
-  const benchmarks = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
+  const heatmapData = state.summary.heatmap || {};
+  const runTimes = heatmapData.run_times || [];
+  const benchmarks = heatmapData.benchmarks || [];
+  const values = heatmapData.values || [];
   const enoughRuns = runTimes.length >= minTrendRuns;
   document.getElementById("heatmap-note").textContent = enoughRuns
-    ? "Color shows percent change from each benchmark's rolling baseline; outlined red cells are large slowdowns."
+    ? `Latest ${runTimes.length} runs; color shows percent change from each benchmark's rolling baseline.`
     : `Heatmap activates after ${minTrendRuns} runs; currently ${runTimes.length}.`;
 
   if (!enoughRuns || benchmarks.length === 0) {
@@ -413,21 +458,6 @@ function renderHeatmap() {
     document.getElementById("heatmap").replaceChildren(empty);
     return;
   }
-
-  const z = benchmarks.map((benchmark) => {
-    const rows = groups.get(benchmark);
-    const byTime = new Map(rows.map((row) => [chartTime(row), row[metric]]));
-    const values = [];
-    return runTimes.map((runTime) => {
-      const value = byTime.get(runTime);
-      if (value === undefined) return null;
-      const history = values.filter((entry) => entry !== null).slice(-6).sort((a, b) => a - b);
-      values.push(value);
-      if (history.length < 3) return null;
-      const median = history[Math.floor(history.length / 2)];
-      return pctDelta(value, median);
-    });
-  });
 
   const heatmap = document.getElementById("heatmap");
   const grid = document.createElement("div");
@@ -449,7 +479,7 @@ function renderHeatmap() {
     grid.appendChild(label);
     runTimes.forEach((runTime, columnIndex) => {
       const cell = document.createElement("div");
-      const value = z[rowIndex][columnIndex];
+      const value = values[rowIndex]?.[columnIndex];
       cell.className = `heatmap-cell${heatmapSeverityClass(value)}`;
       cell.style.background = heatmapColor(value);
       cell.title = value === null || value === undefined
@@ -493,7 +523,8 @@ function renderSeriesPanel(datasets, showPanel) {
   renderSeriesFocus();
 }
 
-function render() {
+async function render() {
+  const token = ++renderToken;
   seriesFocus.hovered = null;
   seriesFocus.pinned = null;
   const benchmark = document.getElementById("benchmark").value;
@@ -504,7 +535,8 @@ function render() {
   const moverCount = Math.max(1, Math.min(100, Number(document.getElementById("mover-count").value) || 20));
   const limit = Number(document.getElementById("limit").value);
   const axisScale = document.getElementById("axis-scale").value;
-  const groups = byBenchmark(metric);
+  const groups = await rowsForChart(benchmark, filterText, limit, moverRange);
+  if (token !== renderToken) return;
   const filteredGroups = filterGroups(groups, filterText);
   let selectedGroups = benchmark === "__all__" || filterText.trim()
     ? filteredGroups
@@ -622,22 +654,30 @@ function render() {
   renderHeatmap();
 }
 
+function queueRender() {
+  render().catch((error) => {
+    document.getElementById("summary").textContent = error.message;
+  });
+}
+
 async function main() {
-  const [metadata, rows] = await Promise.all([
-    fetch("metadata.json").then((response) => response.json()),
-    fetch("results.json").then((response) => response.json()),
+  const [metadata, summary, rows] = await Promise.all([
+    fetchJson("metadata.json"),
+    fetchJson("summary.json"),
+    fetchJson("recent-results.json"),
   ]);
   state.metadata = metadata;
+  state.summary = summary;
   state.rows = rows;
   populate();
-  render();
+  queueRender();
   for (const id of ["benchmark", "chart-view", "mover-range", "mover-direction", "mover-count", "limit", "axis-scale"]) {
-    document.getElementById(id).addEventListener("change", render);
+    document.getElementById(id).addEventListener("change", queueRender);
   }
-  document.getElementById("mover-count").addEventListener("input", render);
+  document.getElementById("mover-count").addEventListener("input", queueRender);
   document.getElementById("benchmark-filter").addEventListener("input", () => {
     document.getElementById("benchmark").value = "__all__";
-    render();
+    queueRender();
   });
 }
 
