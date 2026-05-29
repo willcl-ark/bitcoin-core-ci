@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 import argparse
+import gzip
+import hashlib
 import json
 import pathlib
+import re
 import sqlite3
 import statistics
 import tempfile
 
 
 SITE_DIR = pathlib.Path(__file__).resolve().parents[1] / "site"
+RECENT_RUNS = 30
+MIN_TREND_RUNS = 7
+METRIC = "median_elapsed"
 
 
 def ensure_schema(conn):
@@ -120,12 +126,138 @@ def aggregate_rows(rows):
     )
 
 
+def chart_time(row):
+    return row["commit_time"] or row["run_time"]
+
+
+def unique_sorted(values):
+    return sorted(set(values))
+
+
+def pct_delta(latest, base):
+    if not base:
+        return None
+    return ((latest - base) / base) * 100
+
+
+def rows_by_benchmark(rows):
+    groups = {}
+    for row in rows:
+        if row[METRIC] is None:
+            continue
+        groups.setdefault(row["benchmark"], []).append(row)
+    for group_rows in groups.values():
+        group_rows.sort(key=chart_time)
+    return groups
+
+
+def sparkline_values(rows):
+    return [row[METRIC] for row in rows[-30:] if row[METRIC] is not None]
+
+
+def overview_rows(rows):
+    items = []
+    for benchmark, group_rows in rows_by_benchmark(rows).items():
+        latest = group_rows[-1]
+        previous = group_rows[-2] if len(group_rows) > 1 else None
+        delta = pct_delta(latest[METRIC], previous[METRIC]) if previous else None
+        items.append(
+            {
+                "benchmark": benchmark,
+                "latest": latest,
+                "previous": previous,
+                "delta": delta,
+                "sparkline": sparkline_values(group_rows),
+            }
+        )
+    return sorted(
+        items,
+        key=lambda item: (
+            -(abs(item["delta"]) if item["delta"] is not None else -1),
+            item["benchmark"],
+        ),
+    )
+
+
+def heatmap_data(rows):
+    run_times = unique_sorted(chart_time(row) for row in rows)
+    groups = rows_by_benchmark(rows)
+    benchmarks = sorted(groups)
+    if len(run_times) < MIN_TREND_RUNS or not benchmarks:
+        return {
+            "benchmarks": benchmarks,
+            "run_times": run_times,
+            "values": [],
+        }
+
+    values = []
+    for benchmark in benchmarks:
+        by_time = {chart_time(row): row[METRIC] for row in groups[benchmark]}
+        history = []
+        benchmark_values = []
+        for run_time in run_times:
+            value = by_time.get(run_time)
+            if value is None:
+                benchmark_values.append(None)
+                continue
+            baseline_values = sorted(history[-6:])
+            history.append(value)
+            if len(baseline_values) < 3:
+                benchmark_values.append(None)
+                continue
+            median = baseline_values[len(baseline_values) // 2]
+            benchmark_values.append(pct_delta(value, median))
+        values.append(benchmark_values)
+
+    return {
+        "benchmarks": benchmarks,
+        "run_times": run_times,
+        "values": values,
+    }
+
+
+def recent_rows(rows):
+    run_times = unique_sorted(chart_time(row) for row in rows)
+    recent_times = set(run_times[-RECENT_RUNS:])
+    return [row for row in rows if chart_time(row) in recent_times]
+
+
+def benchmark_slug(name):
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", name).strip("-").lower()
+    if not slug:
+        slug = "benchmark"
+    digest = hashlib.sha1(name.encode()).hexdigest()[:12]
+    return f"{slug[:80]}-{digest}"
+
+
+def series_manifest(rows):
+    manifest = []
+    for benchmark, group_rows in rows_by_benchmark(rows).items():
+        manifest.append(
+            {
+                "benchmark": benchmark,
+                "path": f"series/{benchmark_slug(benchmark)}.json",
+                "points": len(group_rows),
+            }
+        )
+    return sorted(manifest, key=lambda item: item["benchmark"])
+
+
 def write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
     with tmp.open("w") as f:
         json.dump(value, f, sort_keys=True)
         f.write("\n")
     tmp.replace(path)
+    write_gzip(path)
+
+
+def write_gzip(path):
+    replace_file(
+        path.with_suffix(path.suffix + ".gz"),
+        gzip.compress(path.read_bytes(), compresslevel=9),
+    )
 
 
 def replace_file(path, data):
@@ -156,12 +288,24 @@ def copy_assets(output_dir, version):
             continue
         output = output_dir / asset.name
         if asset.name == "index.html":
+            output_data = asset.read_text().replace("__ASSET_VERSION__", version).encode()
             replace_file(
                 output,
-                asset.read_text().replace("__ASSET_VERSION__", version).encode(),
+                output_data,
             )
         else:
-            replace_file(output, asset.read_bytes())
+            output_data = asset.read_bytes()
+            replace_file(output, output_data)
+        write_gzip(output)
+
+
+def write_series(output_dir, rows):
+    series_dir = output_dir / "series"
+    series_dir.mkdir(parents=True, exist_ok=True)
+    for stale in list(series_dir.glob("*.json")) + list(series_dir.glob("*.json.gz")):
+        stale.unlink()
+    for benchmark, group_rows in rows_by_benchmark(rows).items():
+        write_json(series_dir / f"{benchmark_slug(benchmark)}.json", group_rows)
 
 
 def generate(args):
@@ -173,7 +317,20 @@ def generate(args):
         rows = aggregate_rows(sample_rows)
         runs = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
 
+    manifest = series_manifest(rows)
+    recent = recent_rows(rows)
     write_json(args.output_dir / "results.json", rows)
+    write_json(args.output_dir / "recent-results.json", recent)
+    write_json(
+        args.output_dir / "summary.json",
+        {
+            "benchmarks": [item["benchmark"] for item in manifest],
+            "heatmap": heatmap_data(recent),
+            "overview": overview_rows(rows),
+            "recent_run_count": RECENT_RUNS,
+            "series": manifest,
+        },
+    )
     write_json(
         args.output_dir / "metadata.json",
         {
@@ -183,6 +340,7 @@ def generate(args):
             "samples": len(sample_rows),
         },
     )
+    write_series(args.output_dir, rows)
     copy_assets(args.output_dir, asset_version(args.generated_at))
     print(f"generated benchmark dashboard in {args.output_dir}")
 
