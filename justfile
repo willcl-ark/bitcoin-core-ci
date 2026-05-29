@@ -39,6 +39,11 @@ sync-rebuild type=default_host host=default_host:
     just sync {{host}}
     just rebuild {{type}} {{host}}
 
+# Copy only the Bitcoin Core benchmark job to the remote machine
+[group('live')]
+bench-site-sync host=default_host:
+    rsync -av --delete jobs/bitcoin-core-bench/ {{host}}:/etc/nixos/jobs/bitcoin-core-bench/
+
 # Follow CI service logs
 [group('live')]
 logs host=default_host:
@@ -88,7 +93,7 @@ bench-site-preview host=default_host port=bench_preview_port:
 # Sync current benchmark dashboard code and regenerate the live static site
 [group('live')]
 bench-site-update host=default_host:
-    just sync {{host}}
+    just bench-site-sync {{host}}
     ssh {{host}} 'cd /etc/nixos/jobs/bitcoin-core-bench && sudo -u ci-runner nix develop --no-write-lock-file .#gcc -c python3 ./scripts/generate-site.py \
         --db /var/lib/ci-runner/benchmarks/bitcoin-core/benchmarks.sqlite \
         --output-dir /var/lib/ci-runner/benchmarks/bitcoin-core/site \
