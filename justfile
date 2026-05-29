@@ -79,17 +79,17 @@ queue-status host=default_host:
 bench-site-preview host=default_host port=bench_preview_port:
     mkdir -p {{bench_preview_dir}}
     scp {{host}}:/var/lib/ci-runner/benchmarks/bitcoin-core/benchmarks.sqlite {{bench_preview_dir}}/benchmarks.sqlite
-    nix develop ./jobs/bitcoin-core-bench#gcc -c python3 jobs/bitcoin-core-bench/scripts/generate-site.py \
+    nix develop --no-write-lock-file ./jobs/bitcoin-core-bench#gcc -c python3 jobs/bitcoin-core-bench/scripts/generate-site.py \
         --db {{bench_preview_dir}}/benchmarks.sqlite \
         --output-dir {{bench_preview_dir}}/site \
         --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    nix develop ./jobs/bitcoin-core-bench#gcc -c python3 -m http.server {{port}} --bind 127.0.0.1 --directory {{bench_preview_dir}}/site
+    nix develop --no-write-lock-file ./jobs/bitcoin-core-bench#gcc -c python3 -m http.server {{port}} --bind 127.0.0.1 --directory {{bench_preview_dir}}/site
 
 # Sync current benchmark dashboard code and regenerate the live static site
 [group('live')]
 bench-site-update host=default_host:
     just sync {{host}}
-    ssh {{host}} 'cd /etc/nixos/jobs/bitcoin-core-bench && sudo -u ci-runner nix develop .#gcc -c python3 ./scripts/generate-site.py \
+    ssh {{host}} 'cd /etc/nixos/jobs/bitcoin-core-bench && sudo -u ci-runner nix develop --no-write-lock-file .#gcc -c python3 ./scripts/generate-site.py \
         --db /var/lib/ci-runner/benchmarks/bitcoin-core/benchmarks.sqlite \
         --output-dir /var/lib/ci-runner/benchmarks/bitcoin-core/site \
         --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"'
