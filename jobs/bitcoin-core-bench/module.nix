@@ -19,6 +19,7 @@ let
   cloudflaredStateDir = "/var/lib/cloudflared";
   initializeBenchmarkState = pkgs.writeShellScript "initialize-benchmark-state" ''
     set -euo pipefail
+    install -d -m 0750 -o ci-runner -g ci-runner ${ci.home}
     install -d -m 0750 -o ci-runner -g ci-runner ${benchmarkBase}
     install -d -m 0750 -o ci-runner -g ci-runner ${benchmarkRoot}
     install -d -m 0750 -o ci-runner -g ci-runner ${benchmarkArtifactRoot}
