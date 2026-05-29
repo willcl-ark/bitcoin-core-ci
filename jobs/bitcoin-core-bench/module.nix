@@ -70,6 +70,7 @@ in
     home = cloudflaredStateDir;
     createHome = true;
   };
+  users.users.nginx.extraGroups = [ "ci-runner" ];
 
   sops.secrets."cloudflared/tunnel-token" = {
     owner = "cloudflared";
@@ -105,6 +106,7 @@ in
     enable = true;
     recommendedGzipSettings = true;
     virtualHosts.ci-bitcoin-bench-dashboard = {
+      default = true;
       listen = [
         {
           addr = "127.0.0.1";
