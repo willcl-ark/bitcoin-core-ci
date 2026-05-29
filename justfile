@@ -79,22 +79,20 @@ queue-status host=default_host:
 bench-site-preview host=default_host port=bench_preview_port:
     mkdir -p {{bench_preview_dir}}
     scp {{host}}:/var/lib/ci-runner/benchmarks/bitcoin-core/benchmarks.sqlite {{bench_preview_dir}}/benchmarks.sqlite
-    jobs/bitcoin-core-bench/scripts/generate-site.py \
+    nix develop ./jobs/bitcoin-core-bench#gcc -c python3 jobs/bitcoin-core-bench/scripts/generate-site.py \
         --db {{bench_preview_dir}}/benchmarks.sqlite \
         --output-dir {{bench_preview_dir}}/site \
         --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    python3 -m http.server {{port}} --bind 127.0.0.1 --directory {{bench_preview_dir}}/site
+    nix develop ./jobs/bitcoin-core-bench#gcc -c python3 -m http.server {{port}} --bind 127.0.0.1 --directory {{bench_preview_dir}}/site
 
-# Copy static benchmark dashboard assets to the live machine without rebuilding
+# Sync current benchmark dashboard code and regenerate the live static site
 [group('live')]
 bench-site-update host=default_host:
-    rsync -av \
-        --chown=ci-runner:ci-runner \
-        --chmod=F644 \
-        jobs/bitcoin-core-bench/site/app.js \
-        jobs/bitcoin-core-bench/site/index.html \
-        jobs/bitcoin-core-bench/site/style.css \
-        {{host}}:/var/lib/ci-runner/benchmarks/bitcoin-core/site/
+    just sync {{host}}
+    ssh {{host}} 'cd /etc/nixos/jobs/bitcoin-core-bench && sudo -u ci-runner nix develop .#gcc -c python3 ./scripts/generate-site.py \
+        --db /var/lib/ci-runner/benchmarks/bitcoin-core/benchmarks.sqlite \
+        --output-dir /var/lib/ci-runner/benchmarks/bitcoin-core/site \
+        --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"'
 
 # Stop all CI services
 services command host=default_host:
