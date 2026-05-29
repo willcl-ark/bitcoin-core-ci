@@ -101,6 +101,27 @@ in
     "d ${cloudflaredStateDir} 0750 cloudflared cloudflared -"
   ];
 
+  services.nginx = {
+    enable = true;
+    recommendedGzipSettings = true;
+    virtualHosts.ci-bitcoin-bench-dashboard = {
+      listen = [
+        {
+          addr = "127.0.0.1";
+          port = 8080;
+        }
+      ];
+      root = benchmarkSiteDir;
+      extraConfig = ''
+        gzip_static on;
+        add_header Cache-Control "public, max-age=60";
+      '';
+      locations."/".extraConfig = ''
+        try_files $uri $uri/ =404;
+      '';
+    };
+  };
+
   ci.runner.jobs.bitcoin-bench = {
     command = [
       "${benchmarkQueueRunner}/bin/ci-start-bitcoin-bench"
@@ -153,16 +174,14 @@ in
     };
 
     ci-bitcoin-bench-dashboard = {
-      description = "Serve Bitcoin Core benchmark dashboard";
+      description = "Prepare Bitcoin Core benchmark dashboard";
       wantedBy = [ "multi-user.target" ];
+      wants = [ "nginx.service" ];
+      after = [ "nginx.service" ];
       serviceConfig = {
-        Type = "simple";
-        ExecStartPre = "+${initializeBenchmarkState}";
-        ExecStart = "${pkgs.python3}/bin/python3 -m http.server --bind 127.0.0.1 8080 --directory ${benchmarkSiteDir}";
-        User = "ci-runner";
-        Group = "ci-runner";
-        Restart = "always";
-        RestartSec = "10";
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "+${initializeBenchmarkState}";
       };
     };
 
@@ -171,10 +190,12 @@ in
       wantedBy = [ "multi-user.target" ];
       wants = [
         "network-online.target"
+        "nginx.service"
         "ci-bitcoin-bench-dashboard.service"
       ];
       after = [
         "network-online.target"
+        "nginx.service"
         "ci-bitcoin-bench-dashboard.service"
       ];
       serviceConfig = {
