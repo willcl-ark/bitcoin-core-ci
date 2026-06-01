@@ -103,6 +103,13 @@ th {
 
 tr { cursor: pointer; }
 tr:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+tr.movement-uncertain {
+  color: var(--muted);
+}
+tr.movement-uncertain .delta-bad,
+tr.movement-uncertain .delta-good {
+  color: var(--muted);
+}
 .name-cell { max-width: 720px; overflow: hidden; text-overflow: ellipsis; }
 .delta-bad { color: var(--bad); font-weight: 700; }
 .delta-good { color: var(--good); font-weight: 700; }

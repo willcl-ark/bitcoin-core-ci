@@ -5,6 +5,8 @@ const state = {
   seriesRows: new Map(),
 };
 const minTrendRuns = 7;
+const minSampleSupportRatio = 0.8;
+const fullSampleCount = 5;
 const metric = "median_elapsed";
 const seriesFocus = { hovered: null, pinned: null };
 let chart;
@@ -35,6 +37,72 @@ function chartTime(row) { return row.commit_time || row.run_time; }
 function focusedSeries() { return seriesFocus.pinned || seriesFocus.hovered; }
 function pinnedSeries() { return seriesFocus.pinned; }
 function needsFullHistory(limit, moverRange) { return limit === 0 || limit > (state.summary.recent_run_count || 90) || moverRange === "all-time"; }
+
+function sampleValues(row) {
+  return Array.isArray(row?.sample_median_elapsed_values)
+    ? row.sample_median_elapsed_values.filter((value) => value !== null && value !== undefined)
+    : [];
+}
+
+function formatSpread(row) {
+  if (!row) return "samples n/a";
+  const samples = sampleValues(row);
+  const sampleCount = row.sample_count || samples.length || 1;
+  const parts = [`samples ${sampleCount}`];
+  if (row.mad_elapsed !== null && row.mad_elapsed !== undefined) {
+    parts.push(`MAD ${formatSeconds(row.mad_elapsed)}`);
+  }
+  if (samples.length > 0) {
+    parts.push(`range ${formatSeconds(Math.min(...samples))}..${formatSeconds(Math.max(...samples))}`);
+  }
+  return parts.join(", ");
+}
+
+function movementStats(base, latest) {
+  const baseValue = base?.[metric];
+  const latestValue = latest?.[metric];
+  const delta = pctDelta(latestValue, baseValue);
+  const stats = {
+    delta,
+    eligible: delta !== null && delta !== undefined && !Number.isNaN(delta),
+    sampleSupported: true,
+    sampleSupport: null,
+  };
+  if (!stats.eligible || delta === 0) return stats;
+
+  const baseSamples = sampleValues(base);
+  const latestSamples = sampleValues(latest);
+  const supportThreshold = (total) => Math.ceil(total * minSampleSupportRatio);
+  if (baseSamples.length >= fullSampleCount && latestSamples.length >= fullSampleCount) {
+    const slower = delta > 0;
+    let supported = 0;
+    let total = 0;
+    for (const latestSample of latestSamples) {
+      for (const baseSample of baseSamples) {
+        total += 1;
+        if (slower ? latestSample > baseSample : latestSample < baseSample) {
+          supported += 1;
+        }
+      }
+    }
+    stats.sampleSupport = { supported, total };
+    stats.sampleSupported = supported >= supportThreshold(total);
+    stats.eligible = stats.sampleSupported;
+  } else if (latestSamples.length >= fullSampleCount) {
+    const slower = delta > 0;
+    const supported = latestSamples.filter((value) => slower ? value > baseValue : value < baseValue).length;
+    stats.sampleSupport = { supported, total: latestSamples.length };
+    stats.sampleSupported = supported >= supportThreshold(latestSamples.length);
+    stats.eligible = stats.sampleSupported;
+  }
+  return stats;
+}
+
+function formatSampleSupport(stats) {
+  if (!stats?.sampleSupport) return "";
+  const { supported, total } = stats.sampleSupport;
+  return `${supported}/${total} sample comparisons support this movement`;
+}
 
 function showChartStatus(message) {
   const selection = document.getElementById("chart-selection");
@@ -233,21 +301,16 @@ function chartRows(rows, metric, limit, axisScale) {
   return visible;
 }
 
-function groupDelta(rows, metric) {
-  if (rows.length < 2) return null;
-  return pctDelta(rows.at(-1)[metric], rows[0][metric]);
-}
-
 function largestMovers(groups, limit, axisScale, useDisplayWindow, direction, count) {
   return groups
     .map(([name, rows]) => [name, useDisplayWindow ? chartRows(rows, metric, limit, axisScale) : rows])
-    .map(([name, rows]) => ({ name, rows, delta: groupDelta(rows, metric) }))
-    .filter((item) => item.delta !== null && item.delta !== undefined && !Number.isNaN(item.delta))
-    .filter((item) => direction === "both" || (direction === "slowdowns" ? item.delta > 0 : item.delta < 0))
+    .map(([name, rows]) => ({ name, rows, stats: rows.length >= 2 ? movementStats(rows[0], rows.at(-1)) : null }))
+    .filter((item) => item.stats?.eligible)
+    .filter((item) => direction === "both" || (direction === "slowdowns" ? item.stats.delta > 0 : item.stats.delta < 0))
     .sort((a, b) => {
-      if (direction === "slowdowns") return b.delta - a.delta || a.name.localeCompare(b.name);
-      if (direction === "speedups") return a.delta - b.delta || a.name.localeCompare(b.name);
-      return Math.abs(b.delta) - Math.abs(a.delta) || a.name.localeCompare(b.name);
+      if (direction === "slowdowns") return b.stats.delta - a.stats.delta || a.name.localeCompare(b.name);
+      if (direction === "speedups") return a.stats.delta - b.stats.delta || a.name.localeCompare(b.name);
+      return Math.abs(b.stats.delta) - Math.abs(a.stats.delta) || a.name.localeCompare(b.name);
     })
     .slice(0, count)
     .map((item) => [item.name, item.rows]);
@@ -384,9 +447,9 @@ function updateTrendCard(id, item, metric) {
   const card = document.getElementById(id);
   card.disabled = !item;
   card.querySelector(".trend-name").textContent = item ? item.benchmark : "n/a";
-  card.querySelector(".trend-value").textContent = item ? pct(item.delta) : "n/a";
+  card.querySelector(".trend-value").textContent = item ? pct(item.stats.delta) : "n/a";
   card.querySelector(".trend-detail").textContent = item
-    ? `${formatSeconds(item.previous[metric])} to ${formatSeconds(item.latest[metric])}`
+    ? `${formatSeconds(item.previous[metric])} to ${formatSeconds(item.latest[metric])}; ${formatSampleSupport(item.stats) || formatSpread(item.latest)}`
     : "Need at least two runs for this metric.";
   card.onclick = item
     ? () => {
@@ -398,21 +461,37 @@ function updateTrendCard(id, item, metric) {
 }
 
 function renderOverview() {
-  const items = state.summary.overview || [];
+  const items = (state.summary.overview || [])
+    .map((item) => ({
+      ...item,
+      stats: item.previous ? movementStats(item.previous, item.latest) : null,
+    }))
+    .sort((a, b) => {
+      const aEligible = a.stats?.eligible ? 1 : 0;
+      const bEligible = b.stats?.eligible ? 1 : 0;
+      if (aEligible !== bEligible) return bEligible - aEligible;
+      const aDelta = a.stats?.delta;
+      const bDelta = b.stats?.delta;
+      const aAbs = aDelta === null || aDelta === undefined || Number.isNaN(aDelta) ? -1 : Math.abs(aDelta);
+      const bAbs = bDelta === null || bDelta === undefined || Number.isNaN(bDelta) ? -1 : Math.abs(bDelta);
+      return bAbs - aAbs || a.benchmark.localeCompare(b.benchmark);
+    });
 
   const enoughRuns = (state.metadata.runs || 0) >= minTrendRuns;
   document.getElementById("overview-note").textContent = enoughRuns
-    ? "Sorted by largest latest change versus the previous run."
+    ? "Sorted by largest latest change versus the previous run; sampled runs need 80% support to rank."
     : `Need ${minTrendRuns} runs for robust rolling-median signals; showing latest values and previous-run deltas when available.`;
 
-  const downtrend = items.filter((item) => item.delta < 0).sort((a, b) => a.delta - b.delta)[0] || null;
-  const uptrend = items.filter((item) => item.delta > 0).sort((a, b) => b.delta - a.delta)[0] || null;
+  const supportedItems = items.filter((item) => item.stats?.eligible);
+  const downtrend = supportedItems.filter((item) => item.stats.delta < 0).sort((a, b) => a.stats.delta - b.stats.delta)[0] || null;
+  const uptrend = supportedItems.filter((item) => item.stats.delta > 0).sort((a, b) => b.stats.delta - a.stats.delta)[0] || null;
   updateTrendCard("trend-down", downtrend, metric);
   updateTrendCard("trend-up", uptrend, metric);
 
   const body = document.getElementById("overview-body");
   body.replaceChildren(...items.map((item) => {
     const tr = document.createElement("tr");
+    tr.className = item.stats?.eligible === false ? "movement-uncertain" : "";
     const nameCell = document.createElement("td");
     nameCell.className = "name-cell";
     nameCell.title = item.benchmark;
@@ -420,13 +499,18 @@ function renderOverview() {
 
     const latestCell = document.createElement("td");
     latestCell.textContent = formatSeconds(item.latest[metric]);
+    latestCell.title = formatSpread(item.latest);
 
     const previousCell = document.createElement("td");
     previousCell.textContent = item.previous ? formatSeconds(item.previous[metric]) : "n/a";
+    previousCell.title = item.previous ? formatSpread(item.previous) : "n/a";
 
     const deltaCell = document.createElement("td");
-    deltaCell.className = item.delta > 0 ? "delta-bad" : item.delta < 0 ? "delta-good" : "";
-    deltaCell.textContent = pct(item.delta);
+    deltaCell.className = item.stats?.delta > 0 ? "delta-bad" : item.stats?.delta < 0 ? "delta-good" : "";
+    deltaCell.textContent = pct(item.stats?.delta);
+    deltaCell.title = item.stats?.eligible === false
+      ? `Not ranked as a mover: ${formatSampleSupport(item.stats) || "insufficient sample support"}`
+      : formatSampleSupport(item.stats);
 
     const trendCell = document.createElement("td");
     trendCell.innerHTML = sparklineValues(item.sparkline || []);
@@ -572,6 +656,8 @@ async function render() {
         commitHash: row.commit_hash,
         jobId: row.job_id,
         runTime: row.run_time,
+        sampleCount: row.sample_count,
+        spread: formatSpread(row),
       })),
       baseColor: color,
       basePointRadius: pointRadius,
@@ -613,7 +699,7 @@ async function render() {
           callbacks: {
             title: (items) => items[0]?.raw?.x || "",
             label: (item) => `${item.dataset.label}: ${formatSeconds(item.raw.y)}`,
-            afterLabel: (item) => `${item.raw.commit}\n${item.raw.runTime}\n${item.raw.jobId}`,
+            afterLabel: (item) => `${item.raw.commit}\n${item.raw.runTime}\n${item.raw.spread}\n${item.raw.jobId}`,
           },
         },
       },

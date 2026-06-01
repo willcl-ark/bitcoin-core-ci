@@ -110,6 +110,7 @@ def aggregate_rows(rows):
             default=None,
         )
         row["median_elapsed"] = median_or_none(median_values)
+        row["sample_median_elapsed_values"] = median_values
         row["mdape_elapsed"] = median_or_none(row["mdape_elapsed"] for row in samples)
         if sample_count >= 2:
             sample_median = row["median_elapsed"]
