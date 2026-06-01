@@ -131,6 +131,15 @@
                 boot.loader.efi.canTouchEfiVariables = true;
                 boot.kernelModules = [ "msr" ];
 
+                fileSystems."/tmp" = {
+                  device = "tmpfs";
+                  fsType = "tmpfs";
+                  options = [
+                    "mode=1777"
+                    "size=32G"
+                  ];
+                };
+
                 networking.hostName = "beelink";
                 networking.networkmanager = {
                   enable = true;
