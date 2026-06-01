@@ -11,10 +11,12 @@ let
   benchmarkArtifactRoot = "${benchmarkRoot}/artifacts";
   benchmarkDb = "${benchmarkRoot}/benchmarks.sqlite";
   benchmarkRunEnv = "${benchmarkRoot}/run.env";
+  benchmarkBoostState = "${benchmarkRoot}/boost.state";
   benchmarkSiteDir = "${benchmarkRoot}/site";
-  benchmarkCpuAffinity = "2,3";
-  benchmarkCpusetShield = "2,3,14,15";
-  benchmarkCpusetHousekeeping = "0,1,4-13,16-23";
+  benchmarkCpuAffinity = "2";
+  benchmarkIsolatedCpus = "2,14";
+  benchmarkCpusetShield = benchmarkIsolatedCpus;
+  benchmarkCpusetHousekeeping = "0,1,3-13,15-23";
   benchBitcoinRepo = "${ci.home}/bitcoin-bench";
   cloudflaredStateDir = "/var/lib/cloudflared";
   initializeBenchmarkState = pkgs.writeShellScript "initialize-benchmark-state" ''
@@ -34,6 +36,25 @@ let
     EOF
       chown ci-runner:ci-runner ${benchmarkSiteDir}/index.html
     fi
+  '';
+  disableBenchmarkBoost = pkgs.writeShellScript "disable-benchmark-boost" ''
+    set -euo pipefail
+    boost=/sys/devices/system/cpu/cpufreq/boost
+    if [ ! -e "$boost" ]; then
+      exit 0
+    fi
+
+    install -d -m 0750 -o ci-runner -g ci-runner ${benchmarkRoot}
+    cat "$boost" > ${benchmarkBoostState}
+    echo 0 > "$boost"
+  '';
+  restoreBenchmarkBoost = pkgs.writeShellScript "restore-benchmark-boost" ''
+    set -euo pipefail
+    boost=/sys/devices/system/cpu/cpufreq/boost
+    if [ -e "$boost" ] && [ -s ${benchmarkBoostState} ]; then
+      cat ${benchmarkBoostState} > "$boost"
+    fi
+    rm -f ${benchmarkBoostState}
   '';
   pyperfPython = pkgs.python3.withPackages (pythonPackages: [
     pythonPackages.pyperf
@@ -64,6 +85,13 @@ let
   };
 in
 {
+  boot.kernelParams = [
+    "isolcpus=${benchmarkIsolatedCpus}"
+    "rcu_nocbs=${benchmarkIsolatedCpus}"
+  ];
+  boot.kernel.sysctl."kernel.perf_event_max_sample_rate" = 1;
+  powerManagement.cpuFreqGovernor = "performance";
+
   users.groups.cloudflared = { };
   users.users.cloudflared = {
     isSystemUser = true;
@@ -170,9 +198,15 @@ in
         Group = "root";
         EnvironmentFile = "-${benchmarkRunEnv}";
         WorkingDirectory = ci.jobs.bench;
-        ExecStartPre = "+${initializeBenchmarkState}";
+        ExecStartPre = [
+          "+${initializeBenchmarkState}"
+          "+${disableBenchmarkBoost}"
+        ];
         ExecStart = "${pkgs.bash}/bin/bash ${ci.jobs.bench}/scripts/run-bench-with-pyperf.sh";
-        ExecStopPost = "+${pkgs.coreutils}/bin/rm -f ${benchmarkRunEnv}";
+        ExecStopPost = [
+          "+${restoreBenchmarkBoost}"
+          "+${pkgs.coreutils}/bin/rm -f ${benchmarkRunEnv}"
+        ];
       };
     };
 
