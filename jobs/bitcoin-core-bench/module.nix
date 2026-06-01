@@ -56,9 +56,31 @@ let
     fi
     rm -f ${benchmarkBoostState}
   '';
-  pyperfPython = pkgs.python3.withPackages (pythonPackages: [
-    pythonPackages.pyperf
-  ]);
+  benchmarkRunner = pkgs.writeShellScript "run-bitcoin-bench-as-ci-runner" ''
+    set -euo pipefail
+    runuser -u ci-runner -- \
+      env \
+        BENCHMARK_CPU_AFFINITY="${benchmarkCpuAffinity}" \
+        BENCHMARK_CPUSET_HOUSEKEEPING="${benchmarkCpusetHousekeeping}" \
+        BENCHMARK_CPUSET_SHIELD="${benchmarkCpusetShield}" \
+        BENCHMARK_ARTIFACT_ROOT="${benchmarkArtifactRoot}" \
+        BENCHMARK_DB="${benchmarkDb}" \
+        BENCHMARK_MIN_TIME_MS="''${BENCHMARK_MIN_TIME_MS:-1000}" \
+        BENCHMARK_RUN_COUNT="''${BENCHMARK_RUN_COUNT:-5}" \
+        BENCHMARK_SITE_DIR="${benchmarkSiteDir}" \
+        BITCOIN_REPO="${benchBitcoinRepo}" \
+        BITCOIN_REPO_URL="${ci.bitcoinRepoUrl}" \
+        CCACHE_DIR="${ci.ccache.dir}" \
+        CCACHE_MAXSIZE="${ci.ccache.maxSize}" \
+        CDASH_BUILD_NAME_PREFIX="${ci.cdashBuildNamePrefix}" \
+        CI_FLAKE="${ci.flake}" \
+        CI_JOB_ID="''${CI_JOB_ID:-bitcoin-bench-$(date -u +"%Y%m%dT%H%M%SZ")}" \
+        CI_JOB_KIND="''${CI_JOB_KIND:-continuous}" \
+        CI_REVISION="''${CI_REVISION:-}" \
+        CTEST_SITE="${ci.ctestSite}" \
+        WORK_DIR="${ci.workDir}" \
+        ${pkgs.bash}/bin/bash ${ci.jobs.bench}/scripts/run-bench.sh
+  '';
   benchmarkQueueRunner = pkgs.writeShellApplication {
     name = "ci-start-bitcoin-bench";
     runtimeInputs = [
@@ -162,9 +184,8 @@ in
 
   systemd.services = {
     ci-bitcoin-bench-run = {
-      description = "Run Bitcoin Core continuous benchmark CI with pyperf tuning";
+      description = "Run Bitcoin Core continuous benchmark CI";
       path = [
-        pyperfPython
         pkgs.bash
         pkgs.coreutils
         pkgs.git
@@ -202,7 +223,7 @@ in
           "+${initializeBenchmarkState}"
           "+${disableBenchmarkBoost}"
         ];
-        ExecStart = "${pkgs.bash}/bin/bash ${ci.jobs.bench}/scripts/run-bench-with-pyperf.sh";
+        ExecStart = "${benchmarkRunner}";
         ExecStopPost = [
           "+${restoreBenchmarkBoost}"
           "+${pkgs.coreutils}/bin/rm -f ${benchmarkRunEnv}"
