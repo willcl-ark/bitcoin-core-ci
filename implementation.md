@@ -60,11 +60,12 @@
   state directory and served only on `127.0.0.1:8080`. Cloudflare Tunnel uses a
   remotely managed tunnel token from SOPS, decrypted on Beelink by its host SSH
   key.
-- `bench_bitcoin` runs under a root wrapper that applies `pyperf system tune`,
-  moves normal system/user/init cgroups to housekeeping CPUs `0,1,4-13,16-23`,
-  runs the benchmark in a transient unit limited to CPUs `2,3,14,15`, and pins
-  the benchmark process itself to CPUs `2,3`. The wrapper resets pyperf and
-  restores cgroup CPU access to `0-23` on exit.
+- `bench_bitcoin` runs without pyperf in the service path. NixOS sets the
+  performance governor and perf sample-rate sysctl, the benchmark service
+  disables AMD CPU boost only while it is active, normal system/user/init
+  cgroups move to housekeeping CPUs `0,1,3-13,15-23`, the benchmark transient
+  unit is limited to isolated sibling CPUs `2,14`, and the benchmark process
+  itself is pinned to logical CPU `2`.
 - Benchmark state initialization is shared by the dashboard and tuned benchmark
   runner. It creates the base, artifact, and site directories as `ci-runner` so
   root-owned parent directories do not block artifact writes.
@@ -127,3 +128,35 @@
   dimming the chart; clicking pins it and dims the other lines until cleared.
   The Chart.js tooltip is offset from the pointer so it does not hide the
   hovered line.
+- Clicking a chart data point copies the full commit hash to the clipboard.
+  A short toast confirms success or failure. Non-point clicks keep the existing
+  series pinning behavior.
+- Clicking a chart line segment copies the adjacent full commit hashes in
+  `old...new` compare range format. Slowdown segments use a specific toast
+  label.
+- `just bench-site-update` pushes only static dashboard assets to the live
+  benchmark site and installs them as `ci-runner:ci-runner` mode `0644`,
+  leaving generated result data in place.
+- Benchmark jobs run 5 independent `bench_bitcoin` process samples by default.
+  Each sample is stored under the run artifact directory as
+  `sample-NN/{metadata,bench}.{json,log,csv}` and recorded with a sample-suffixed
+  job id. The generated dashboard collapses samples for the same
+  commit/host/compiler/preset/min-time/benchmark into one point using the median
+  of sample medians, while preserving min/max and MAD-style sample spread fields.
+- Queue items with `CI_JOB_KIND=backfill-sample` override the benchmark run
+  count to 1. This is for adding supplemental samples to existing one-sample
+  history without accidentally adding another full 5-sample batch.
+- The benchmark dashboard initial load uses bounded static data:
+  `summary.json` and `recent-results.json` cover the latest 30 runs, while
+  full `results.json` and per-benchmark `series/*.json` files are fetched only
+  for larger history requests. `generate-site.py` writes `.gz` companions and
+  nginx serves the dashboard on localhost port 8080 with gzip-static enabled,
+  replacing the earlier Python `http.server` service.
+- Benchmark mover ranking uses one frontend movement helper for both the chart
+  and overview table. When both compared points have five process samples, a
+  mover must have at least 80% of pairwise sample comparisons support the
+  aggregate direction; when only the latest point has five samples, at least
+  80% of samples must beat the baseline aggregate in the aggregate direction.
+- The beelink host mounts `/tmp` as a 32 GiB tmpfs so benchmark temporary files
+  avoid NVMe/page-cache effects unless a job explicitly chooses another
+  temporary directory.
