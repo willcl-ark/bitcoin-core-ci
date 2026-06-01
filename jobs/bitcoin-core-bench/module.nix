@@ -190,6 +190,7 @@ in
         pkgs.coreutils
         pkgs.git
         pkgs.nix
+        pkgs.python3
         pkgs.sudo
         pkgs.systemd
         pkgs.util-linux
