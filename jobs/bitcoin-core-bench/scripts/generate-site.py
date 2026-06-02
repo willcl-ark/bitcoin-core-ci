@@ -13,7 +13,7 @@ import tempfile
 SITE_DIR = pathlib.Path(__file__).resolve().parents[1] / "site"
 RECENT_RUNS = 30
 MIN_TREND_RUNS = 7
-METRIC = "median_elapsed"
+METRIC = "ns_per_unit"
 
 
 def ensure_schema(conn):
@@ -71,6 +71,20 @@ def median_or_none(values):
     return statistics.median(present)
 
 
+def ns_per_unit(row):
+    if row["median_elapsed"] is None or not row["batch"]:
+        return None
+    return row["median_elapsed"] * 1e9 / row["batch"]
+
+
+def series_key(row):
+    return (row["benchmark"], row["unit"])
+
+
+def series_label(benchmark, unit):
+    return f"{benchmark} ({unit})"
+
+
 def aggregate_rows(rows):
     groups = {}
     for row in rows:
@@ -81,6 +95,7 @@ def aggregate_rows(rows):
             row["preset"],
             row["min_time_ms"],
             row["benchmark"],
+            row["unit"],
         )
         groups.setdefault(key, []).append(row)
 
@@ -93,8 +108,15 @@ def aggregate_rows(rows):
             for row in samples
             if row["median_elapsed"] is not None
         ]
+        ns_values = [
+            ns_value
+            for row in samples
+            for ns_value in [ns_per_unit(row)]
+            if ns_value is not None
+        ]
         sample_count = len(median_values)
         row = dict(first)
+        row["series"] = series_label(row["benchmark"], row["unit"])
         row["job_id"] = ",".join(row["job_id"] for row in samples)
         row["run_time"] = max(row["run_time"] for row in samples)
         row["sample_index"] = None
@@ -111,19 +133,21 @@ def aggregate_rows(rows):
         )
         row["median_elapsed"] = median_or_none(median_values)
         row["sample_median_elapsed_values"] = median_values
+        row["ns_per_unit"] = median_or_none(ns_values)
+        row["sample_ns_per_unit_values"] = ns_values
         row["mdape_elapsed"] = median_or_none(row["mdape_elapsed"] for row in samples)
-        if sample_count >= 2:
-            sample_median = row["median_elapsed"]
-            row["mad_elapsed"] = statistics.median(
-                abs(value - sample_median) for value in median_values
+        if len(ns_values) >= 2:
+            sample_median = row["ns_per_unit"]
+            row["mad_ns_per_unit"] = statistics.median(
+                abs(value - sample_median) for value in ns_values
             )
         else:
-            row["mad_elapsed"] = None
+            row["mad_ns_per_unit"] = None
         aggregated.append(row)
 
     return sorted(
         aggregated,
-        key=lambda row: (row["benchmark"], row["commit_time"], row["commit_hash"]),
+        key=lambda row: (row["benchmark"], row["unit"], row["commit_time"], row["commit_hash"]),
     )
 
 
@@ -141,12 +165,12 @@ def pct_delta(latest, base):
     return ((latest - base) / base) * 100
 
 
-def rows_by_benchmark(rows):
+def rows_by_series(rows):
     groups = {}
     for row in rows:
         if row[METRIC] is None:
             continue
-        groups.setdefault(row["benchmark"], []).append(row)
+        groups.setdefault(series_key(row), []).append(row)
     for group_rows in groups.values():
         group_rows.sort(key=chart_time)
     return groups
@@ -158,13 +182,15 @@ def sparkline_values(rows):
 
 def overview_rows(rows):
     items = []
-    for benchmark, group_rows in rows_by_benchmark(rows).items():
+    for (benchmark, unit), group_rows in rows_by_series(rows).items():
         latest = group_rows[-1]
         previous = group_rows[-2] if len(group_rows) > 1 else None
         delta = pct_delta(latest[METRIC], previous[METRIC]) if previous else None
         items.append(
             {
                 "benchmark": benchmark,
+                "unit": unit,
+                "series": series_label(benchmark, unit),
                 "latest": latest,
                 "previous": previous,
                 "delta": delta,
@@ -175,25 +201,25 @@ def overview_rows(rows):
         items,
         key=lambda item: (
             -(abs(item["delta"]) if item["delta"] is not None else -1),
-            item["benchmark"],
+            item["series"],
         ),
     )
 
 
 def heatmap_data(rows):
     run_times = unique_sorted(chart_time(row) for row in rows)
-    groups = rows_by_benchmark(rows)
-    benchmarks = sorted(groups)
-    if len(run_times) < MIN_TREND_RUNS or not benchmarks:
+    groups = rows_by_series(rows)
+    series = sorted(groups, key=lambda key: series_label(*key))
+    if len(run_times) < MIN_TREND_RUNS or not series:
         return {
-            "benchmarks": benchmarks,
+            "benchmarks": [series_label(*key) for key in series],
             "run_times": run_times,
             "values": [],
         }
 
     values = []
-    for benchmark in benchmarks:
-        by_time = {chart_time(row): row[METRIC] for row in groups[benchmark]}
+    for key in series:
+        by_time = {chart_time(row): row[METRIC] for row in groups[key]}
         history = []
         benchmark_values = []
         for run_time in run_times:
@@ -211,7 +237,7 @@ def heatmap_data(rows):
         values.append(benchmark_values)
 
     return {
-        "benchmarks": benchmarks,
+        "benchmarks": [series_label(*key) for key in series],
         "run_times": run_times,
         "values": values,
     }
@@ -233,15 +259,18 @@ def benchmark_slug(name):
 
 def series_manifest(rows):
     manifest = []
-    for benchmark, group_rows in rows_by_benchmark(rows).items():
+    for (benchmark, unit), group_rows in rows_by_series(rows).items():
+        label = series_label(benchmark, unit)
         manifest.append(
             {
                 "benchmark": benchmark,
-                "path": f"series/{benchmark_slug(benchmark)}.json",
+                "unit": unit,
+                "series": label,
+                "path": f"series/{benchmark_slug(label)}.json",
                 "points": len(group_rows),
             }
         )
-    return sorted(manifest, key=lambda item: item["benchmark"])
+    return sorted(manifest, key=lambda item: item["series"])
 
 
 def write_json(path, value):
@@ -305,8 +334,8 @@ def write_series(output_dir, rows):
     series_dir.mkdir(parents=True, exist_ok=True)
     for stale in list(series_dir.glob("*.json")) + list(series_dir.glob("*.json.gz")):
         stale.unlink()
-    for benchmark, group_rows in rows_by_benchmark(rows).items():
-        write_json(series_dir / f"{benchmark_slug(benchmark)}.json", group_rows)
+    for (benchmark, unit), group_rows in rows_by_series(rows).items():
+        write_json(series_dir / f"{benchmark_slug(series_label(benchmark, unit))}.json", group_rows)
 
 
 def generate(args):
@@ -325,7 +354,7 @@ def generate(args):
     write_json(
         args.output_dir / "summary.json",
         {
-            "benchmarks": [item["benchmark"] for item in manifest],
+            "benchmarks": [item["series"] for item in manifest],
             "heatmap": heatmap_data(recent),
             "overview": overview_rows(rows),
             "recent_run_count": RECENT_RUNS,

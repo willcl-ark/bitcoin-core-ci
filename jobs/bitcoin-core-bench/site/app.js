@@ -7,7 +7,7 @@ const state = {
 const minTrendRuns = 7;
 const minSampleSupportRatio = 0.8;
 const fullSampleCount = 5;
-const metric = "median_elapsed";
+const metric = "ns_per_unit";
 const seriesFocus = { hovered: null, pinned: null };
 let chart;
 let fullRowsPromise;
@@ -21,12 +21,10 @@ Chart.Tooltip.positioners.offset = (_elements, eventPosition) => ({
   yAlign: "bottom",
 });
 
-function formatSeconds(value) {
+function formatNsPerUnit(value, unit) {
   if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
-  if (value < 0.000001) return `${(value * 1e9).toFixed(2)} ns`;
-  if (value < 0.001) return `${(value * 1e6).toFixed(2)} us`;
-  if (value < 1) return `${(value * 1e3).toFixed(2)} ms`;
-  return `${value.toFixed(3)} s`;
+  const suffix = unit ? `/${unit}` : "/unit";
+  return `${value.toFixed(value < 10 ? 3 : 2)} ns${suffix}`;
 }
 
 function unique(values) { return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b)); }
@@ -39,8 +37,8 @@ function pinnedSeries() { return seriesFocus.pinned; }
 function needsFullHistory(limit, moverRange) { return limit === 0 || limit > (state.summary.recent_run_count || 90) || moverRange === "all-time"; }
 
 function sampleValues(row) {
-  return Array.isArray(row?.sample_median_elapsed_values)
-    ? row.sample_median_elapsed_values.filter((value) => value !== null && value !== undefined)
+  return Array.isArray(row?.sample_ns_per_unit_values)
+    ? row.sample_ns_per_unit_values.filter((value) => value !== null && value !== undefined)
     : [];
 }
 
@@ -49,11 +47,11 @@ function formatSpread(row) {
   const samples = sampleValues(row);
   const sampleCount = row.sample_count || samples.length || 1;
   const parts = [`samples ${sampleCount}`];
-  if (row.mad_elapsed !== null && row.mad_elapsed !== undefined) {
-    parts.push(`MAD ${formatSeconds(row.mad_elapsed)}`);
+  if (row.mad_ns_per_unit !== null && row.mad_ns_per_unit !== undefined) {
+    parts.push(`MAD ${formatNsPerUnit(row.mad_ns_per_unit, row.unit)}`);
   }
   if (samples.length > 0) {
-    parts.push(`range ${formatSeconds(Math.min(...samples))}..${formatSeconds(Math.max(...samples))}`);
+    parts.push(`range ${formatNsPerUnit(Math.min(...samples), row.unit)}..${formatNsPerUnit(Math.max(...samples), row.unit)}`);
   }
   return parts.join(", ");
 }
@@ -280,8 +278,8 @@ function byBenchmarkRows(rows, metric) {
   const groups = new Map();
   for (const row of rows) {
     if (row[metric] === null || row[metric] === undefined) continue;
-    if (!groups.has(row.benchmark)) groups.set(row.benchmark, []);
-    groups.get(row.benchmark).push(row);
+    if (!groups.has(row.series)) groups.set(row.series, []);
+    groups.get(row.series).push(row);
   }
   for (const rows of groups.values()) rows.sort((a, b) => chartTime(a).localeCompare(chartTime(b)));
   return groups;
@@ -392,7 +390,7 @@ function sparklineValues(values) {
 }
 
 function populate() {
-  const benchmarks = state.summary.benchmarks || unique(state.rows.map((row) => row.benchmark));
+  const benchmarks = state.summary.benchmarks || unique(state.rows.map((row) => row.series));
   const select = document.getElementById("benchmark");
   const allOption = document.createElement("option");
   allOption.value = "__all__";
@@ -426,7 +424,7 @@ async function loadFullRows() {
 
 async function loadSeriesRows(benchmark) {
   if (state.seriesRows.has(benchmark)) return state.seriesRows.get(benchmark);
-  const entry = (state.summary.series || []).find((item) => item.benchmark === benchmark);
+  const entry = (state.summary.series || []).find((item) => item.series === benchmark);
   if (!entry) return [];
   const rows = await fetchJson(entry.path);
   state.seriesRows.set(benchmark, rows);
@@ -436,7 +434,7 @@ async function loadSeriesRows(benchmark) {
 async function rowsForChart(benchmark, filterText, limit, moverRange) {
   const needFull = needsFullHistory(limit, moverRange);
   if (benchmark !== "__all__" && !filterText.trim()) {
-    const rows = needFull ? await loadSeriesRows(benchmark) : state.rows.filter((row) => row.benchmark === benchmark);
+    const rows = needFull ? await loadSeriesRows(benchmark) : state.rows.filter((row) => row.series === benchmark);
     return byBenchmarkRows(rows, metric);
   }
   if (needFull) await loadFullRows();
@@ -446,14 +444,14 @@ async function rowsForChart(benchmark, filterText, limit, moverRange) {
 function updateTrendCard(id, item, metric) {
   const card = document.getElementById(id);
   card.disabled = !item;
-  card.querySelector(".trend-name").textContent = item ? item.benchmark : "n/a";
+  card.querySelector(".trend-name").textContent = item ? item.series : "n/a";
   card.querySelector(".trend-value").textContent = item ? pct(item.stats.delta) : "n/a";
   card.querySelector(".trend-detail").textContent = item
-    ? `${formatSeconds(item.previous[metric])} to ${formatSeconds(item.latest[metric])}; ${formatSampleSupport(item.stats) || formatSpread(item.latest)}`
+    ? `${formatNsPerUnit(item.previous[metric], item.unit)} to ${formatNsPerUnit(item.latest[metric], item.unit)}; ${formatSampleSupport(item.stats) || formatSpread(item.latest)}`
     : "Need at least two runs for this metric.";
   card.onclick = item
     ? () => {
-        document.getElementById("benchmark").value = item.benchmark;
+        document.getElementById("benchmark").value = item.series;
         queueRender();
         document.getElementById("chart").scrollIntoView({ block: "nearest" });
       }
@@ -474,7 +472,7 @@ function renderOverview() {
       const bDelta = b.stats?.delta;
       const aAbs = aDelta === null || aDelta === undefined || Number.isNaN(aDelta) ? -1 : Math.abs(aDelta);
       const bAbs = bDelta === null || bDelta === undefined || Number.isNaN(bDelta) ? -1 : Math.abs(bDelta);
-      return bAbs - aAbs || a.benchmark.localeCompare(b.benchmark);
+      return bAbs - aAbs || a.series.localeCompare(b.series);
     });
 
   const enoughRuns = (state.metadata.runs || 0) >= minTrendRuns;
@@ -494,15 +492,15 @@ function renderOverview() {
     tr.className = item.stats?.eligible === false ? "movement-uncertain" : "";
     const nameCell = document.createElement("td");
     nameCell.className = "name-cell";
-    nameCell.title = item.benchmark;
-    nameCell.textContent = item.benchmark;
+    nameCell.title = item.series;
+    nameCell.textContent = item.series;
 
     const latestCell = document.createElement("td");
-    latestCell.textContent = formatSeconds(item.latest[metric]);
+    latestCell.textContent = formatNsPerUnit(item.latest[metric], item.unit);
     latestCell.title = formatSpread(item.latest);
 
     const previousCell = document.createElement("td");
-    previousCell.textContent = item.previous ? formatSeconds(item.previous[metric]) : "n/a";
+    previousCell.textContent = item.previous ? formatNsPerUnit(item.previous[metric], item.unit) : "n/a";
     previousCell.title = item.previous ? formatSpread(item.previous) : "n/a";
 
     const deltaCell = document.createElement("td");
@@ -517,7 +515,7 @@ function renderOverview() {
 
     tr.replaceChildren(nameCell, latestCell, previousCell, deltaCell, trendCell);
     tr.addEventListener("click", () => {
-      document.getElementById("benchmark").value = item.benchmark;
+      document.getElementById("benchmark").value = item.series;
       queueRender();
       document.getElementById("chart").scrollIntoView({ block: "nearest" });
     });
@@ -657,6 +655,7 @@ async function render() {
         jobId: row.job_id,
         runTime: row.run_time,
         sampleCount: row.sample_count,
+        unit: row.unit,
         spread: formatSpread(row),
       })),
       baseColor: color,
@@ -698,7 +697,7 @@ async function render() {
           caretPadding: 14,
           callbacks: {
             title: (items) => items[0]?.raw?.x || "",
-            label: (item) => `${item.dataset.label}: ${formatSeconds(item.raw.y)}`,
+            label: (item) => `${item.dataset.label}: ${formatNsPerUnit(item.raw.y, item.raw.unit)}`,
             afterLabel: (item) => `${item.raw.commit}\n${item.raw.runTime}\n${item.raw.spread}\n${item.raw.jobId}`,
           },
         },
@@ -712,9 +711,9 @@ async function render() {
         },
         y: {
           type: axisScale,
-          title: { display: true, text: metric.replaceAll("_", " "), color: cssColor("--muted") },
+          title: { display: true, text: "ns/unit", color: cssColor("--muted") },
           grid: { color: cssColor("--line") },
-          ticks: { color: cssColor("--muted"), callback: (value) => formatSeconds(Number(value)) },
+          ticks: { color: cssColor("--muted"), callback: (value) => `${Number(value).toPrecision(3)} ns` },
         },
       },
     },
@@ -734,7 +733,7 @@ async function render() {
     : filterText.trim()
     ? `Showing ${datasets.length} benchmark series${filterSummary}${viewSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
     : latest
-    ? `${benchmark}: latest ${formatSeconds(latest[metric])} at ${chartTime(latest)} (${latest.commit_hash.slice(0, 12)})`
+    ? `${benchmark}: latest ${formatNsPerUnit(latest[metric], latest.unit)} at ${chartTime(latest)} (${latest.commit_hash.slice(0, 12)})`
     : "No results for this selection.";
   renderOverview();
   renderHeatmap();
