@@ -65,7 +65,7 @@ let
         BENCHMARK_CPUSET_SHIELD="${benchmarkCpusetShield}" \
         BENCHMARK_ARTIFACT_ROOT="${benchmarkArtifactRoot}" \
         BENCHMARK_DB="${benchmarkDb}" \
-        BENCHMARK_MIN_TIME_MS="''${BENCHMARK_MIN_TIME_MS:-1000}" \
+        BENCHMARK_MIN_TIME_MS="''${BENCHMARK_MIN_TIME_MS:-5000}" \
         BENCHMARK_RUN_COUNT="''${BENCHMARK_RUN_COUNT:-5}" \
         BENCHMARK_SITE_DIR="${benchmarkSiteDir}" \
         BITCOIN_REPO="${benchBitcoinRepo}" \
@@ -201,7 +201,7 @@ in
         BENCHMARK_CPUSET_HOUSEKEEPING = benchmarkCpusetHousekeeping;
         BENCHMARK_CPUSET_SHIELD = benchmarkCpusetShield;
         BENCHMARK_DB = benchmarkDb;
-        BENCHMARK_MIN_TIME_MS = "1000";
+        BENCHMARK_MIN_TIME_MS = "5000";
         BENCHMARK_RUN_COUNT = "5";
         BENCHMARK_SITE_DIR = benchmarkSiteDir;
         BITCOIN_REPO = benchBitcoinRepo;
