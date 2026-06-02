@@ -142,7 +142,7 @@ tr.movement-uncertain .delta-good {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(180px, 240px) repeat(6, minmax(120px, 170px));
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 240px) repeat(7, minmax(120px, 170px)) minmax(110px, 140px);
   gap: 12px;
   align-items: end;
   margin-bottom: 20px;
@@ -158,7 +158,8 @@ label {
 
 select,
 input[type="search"],
-input[type="number"] {
+input[type="number"],
+.toolbar button {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -166,6 +167,16 @@ input[type="number"] {
   color: var(--text);
   padding: 9px 10px;
   font: inherit;
+}
+
+.toolbar button {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.toolbar button:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 
 #chart, .series-panel {

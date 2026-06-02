@@ -8,11 +8,12 @@ const minTrendRuns = 7;
 const minSampleSupportRatio = 0.8;
 const fullSampleCount = 5;
 const metric = "ns_per_unit";
-const seriesFocus = { hovered: null, pinned: null };
+const seriesFocus = { pinned: null };
 let chart;
 let fullRowsPromise;
 let renderToken = 0;
 let toastTimer;
+let zoomCompletedAt = 0;
 
 Chart.Tooltip.positioners.offset = (_elements, eventPosition) => ({
   x: eventPosition.x + 18,
@@ -32,7 +33,7 @@ function pct(value) { return value === null || value === undefined || Number.isN
 function pctDelta(latest, base) { return base ? ((latest - base) / base) * 100 : null; }
 function cssColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function chartTime(row) { return row.commit_time || row.run_time; }
-function focusedSeries() { return seriesFocus.pinned || seriesFocus.hovered; }
+function chartTimestamp(row) { return Date.parse(chartTime(row)); }
 function pinnedSeries() { return seriesFocus.pinned; }
 function needsFullHistory(limit, moverRange) { return limit === 0 || limit > (state.summary.recent_run_count || 90) || moverRange === "all-time"; }
 
@@ -246,6 +247,14 @@ function nearestChartSegment(event) {
   return best;
 }
 
+function pointSeries(point) {
+  return chart?.data?.datasets?.[point?.datasetIndex]?.label || null;
+}
+
+function segmentSeries(segment) {
+  return chart?.data?.datasets?.[segment?.datasetIndex]?.label || null;
+}
+
 function seriesColor(index) {
   const colors = [
     "#0b7285", "#6741d9", "#c2255c", "#2b8a3e", "#e67700",
@@ -314,28 +323,20 @@ function largestMovers(groups, limit, axisScale, useDisplayWindow, direction, co
     .map((item) => [item.name, item.rows]);
 }
 
-function focusSeries(name, pinned = false) {
-  if (pinned) seriesFocus.pinned = seriesFocus.pinned === name ? null : name;
-  else seriesFocus.hovered = name;
+function focusSeries(name) {
+  seriesFocus.pinned = seriesFocus.pinned === name ? null : name;
   applySeriesFocus();
-}
-
-function hoverSeries(name) {
-  if (seriesFocus.hovered === name) return;
-  seriesFocus.hovered = name;
-  renderSeriesFocus();
-}
-
-function clearHoverSeries(name) {
-  if (seriesFocus.hovered === name) {
-    seriesFocus.hovered = null;
-    renderSeriesFocus();
-  }
 }
 
 function clearPinnedSeries() {
   seriesFocus.pinned = null;
   applySeriesFocus();
+}
+
+function resetZoom() {
+  if (!chart?.resetZoom) return;
+  chart.resetZoom();
+  document.getElementById("reset-zoom").disabled = true;
 }
 
 function applySeriesFocus() {
@@ -354,7 +355,7 @@ function applySeriesFocus() {
 }
 
 function renderSeriesFocus() {
-  const active = focusedSeries();
+  const active = pinnedSeries();
   const selection = document.getElementById("chart-selection");
   if (!active) {
     selection.replaceChildren();
@@ -596,9 +597,7 @@ function renderSeriesPanel(datasets, showPanel) {
     name.className = "series-name";
     name.textContent = dataset.label;
     button.replaceChildren(swatch, name);
-    button.addEventListener("mouseenter", () => hoverSeries(dataset.label));
-    button.addEventListener("mouseleave", () => clearHoverSeries(dataset.label));
-    button.addEventListener("click", () => focusSeries(dataset.label, true));
+    button.addEventListener("click", () => focusSeries(dataset.label));
     list.appendChild(button);
   });
   panel.replaceChildren(list);
@@ -607,7 +606,6 @@ function renderSeriesPanel(datasets, showPanel) {
 
 async function render() {
   const token = ++renderToken;
-  seriesFocus.hovered = null;
   seriesFocus.pinned = null;
   const benchmark = document.getElementById("benchmark").value;
   const filterText = document.getElementById("benchmark-filter").value;
@@ -617,6 +615,7 @@ async function render() {
   const moverCount = Math.max(1, Math.min(100, Number(document.getElementById("mover-count").value) || 20));
   const limit = Number(document.getElementById("limit").value);
   const axisScale = document.getElementById("axis-scale").value;
+  const xAxis = document.getElementById("x-axis").value;
   const groups = await rowsForChart(benchmark, filterText, limit, moverRange);
   if (token !== renderToken) return;
   const filteredGroups = filterGroups(groups, filterText);
@@ -641,15 +640,17 @@ async function render() {
   }
   const selectedRows = [];
   const datasets = selectedGroups.map(([name, groupRows], index) => {
-    const rows = chartRows(groupRows, metric, limit, axisScale);
+    const rows = chartRows(groupRows, metric, limit, axisScale)
+      .filter((row) => xAxis !== "time" || !Number.isNaN(chartTimestamp(row)));
     selectedRows.push(...rows);
     const color = seriesColor(index);
     const pointRadius = benchmark === "__all__" || filterText.trim() ? 2 : 3;
     return {
       label: name,
       data: rows.map((row) => ({
-        x: chartTime(row),
+        x: xAxis === "time" ? chartTimestamp(row) : chartTime(row),
         y: row[metric],
+        time: chartTime(row),
         commit: row.commit_hash.slice(0, 12),
         commitHash: row.commit_hash,
         jobId: row.job_id,
@@ -668,9 +669,10 @@ async function render() {
       tension: 0.22,
     };
   }).filter((dataset) => dataset.data.length > 0);
-  const labels = unique(selectedRows.map((row) => chartTime(row)));
+  const labels = xAxis === "time" ? [] : unique(selectedRows.map((row) => chartTime(row)));
 
   if (chart) chart.destroy();
+  document.getElementById("reset-zoom").disabled = true;
   chart = new Chart(document.getElementById("chart-canvas"), {
     type: "line",
     data: { labels, datasets },
@@ -679,14 +681,26 @@ async function render() {
       maintainAspectRatio: false,
       interaction: { mode: "nearest", intersect: false },
       onHover: (event, elements) => {
-        hoverSeries(nearestChartSeries(event, elements));
+        const series = nearestChartSeries(event, elements);
+        event.native.target.style.cursor = series ? "pointer" : "default";
       },
       onClick: async (event, elements) => {
+        if (Date.now() - zoomCompletedAt < 250) return;
         const points = chart.getElementsAtEventForMode(event.native || event, "nearest", { intersect: true }, true);
-        if (await copyCommitHash(points[0])) return;
-        if (await copyCommitRange(nearestChartSegment(event))) return;
-        const series = nearestChartSeries(event, elements);
-        if (series) focusSeries(series, true);
+        const point = points[0];
+        const segment = nearestChartSegment(event);
+        const clickedSeries = pointSeries(point) || segmentSeries(segment);
+        const selectedSeries = pinnedSeries();
+        if (!clickedSeries) {
+          if (selectedSeries) clearPinnedSeries();
+          return;
+        }
+        if (clickedSeries !== selectedSeries) {
+          focusSeries(clickedSeries);
+          return;
+        }
+        if (point && pointSeries(point) === selectedSeries && await copyCommitHash(point)) return;
+        if (segment && segmentSeries(segment) === selectedSeries) await copyCommitRange(segment);
       },
       plugins: {
         legend: {
@@ -696,16 +710,43 @@ async function render() {
           position: "offset",
           caretPadding: 14,
           callbacks: {
-            title: (items) => items[0]?.raw?.x || "",
-            label: (item) => `${item.dataset.label}: ${formatNsPerUnit(item.raw.y, item.raw.unit)}`,
-            afterLabel: (item) => `${item.raw.commit}\n${item.raw.runTime}\n${item.raw.spread}\n${item.raw.jobId}`,
+            title: (items) => items[0]?.dataset?.label || "",
+            label: (item) => item.raw?.commit || "",
+            afterLabel: () => "",
+          },
+        },
+        zoom: {
+          limits: {
+            x: { min: "original", max: "original" },
+          },
+          zoom: {
+            drag: {
+              enabled: true,
+              backgroundColor: "rgba(11, 114, 133, 0.16)",
+              borderColor: cssColor("--accent"),
+              borderWidth: 1,
+              threshold: 16,
+            },
+            mode: "x",
+            onZoomComplete: () => {
+              zoomCompletedAt = Date.now();
+              document.getElementById("reset-zoom").disabled = false;
+            },
           },
         },
       },
       scales: {
-        x: {
-          type: "category",
+        x: xAxis === "time" ? {
+          type: "time",
           title: { display: true, text: "Commit time", color: cssColor("--muted") },
+          time: {
+            tooltipFormat: "yyyy-MM-dd HH:mm:ss",
+          },
+          grid: { color: cssColor("--line") },
+          ticks: { color: cssColor("--muted"), maxRotation: 40, autoSkip: true },
+        } : {
+          type: "category",
+          title: { display: true, text: "Measurement commit", color: cssColor("--muted") },
           grid: { color: cssColor("--line") },
           ticks: { color: cssColor("--muted"), maxRotation: 40, autoSkip: true },
         },
@@ -729,9 +770,9 @@ async function render() {
     ? `, showing ${datasets.length} ${moverRange === "recent" ? "recent" : "all-time"} ${moverDirection} movers from ${matchingSeriesCount}`
     : "";
   document.getElementById("summary").textContent = benchmark === "__all__"
-    ? `Showing ${datasets.length} benchmark series${filterSummary}${viewSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
+    ? `Showing ${datasets.length} benchmark series${filterSummary}${viewSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}${xAxis === "time" ? " on a time axis" : ""}.`
     : filterText.trim()
-    ? `Showing ${datasets.length} benchmark series${filterSummary}${viewSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}.`
+    ? `Showing ${datasets.length} benchmark series${filterSummary}${viewSummary}${axisScale === "logarithmic" ? " on a log axis" : ""}${xAxis === "time" ? " on a time axis" : ""}.`
     : latest
     ? `${benchmark}: latest ${formatNsPerUnit(latest[metric], latest.unit)} at ${chartTime(latest)} (${latest.commit_hash.slice(0, 12)})`
     : "No results for this selection.";
@@ -756,10 +797,12 @@ async function main() {
   state.rows = rows;
   populate();
   queueRender();
-  for (const id of ["benchmark", "chart-view", "mover-range", "mover-direction", "mover-count", "limit", "axis-scale"]) {
+  for (const id of ["benchmark", "chart-view", "mover-range", "mover-direction", "mover-count", "limit", "axis-scale", "x-axis"]) {
     document.getElementById(id).addEventListener("change", queueRender);
   }
+  document.getElementById("reset-zoom").addEventListener("click", resetZoom);
   document.getElementById("mover-count").addEventListener("input", queueRender);
+  document.getElementById("limit").addEventListener("input", queueRender);
   document.getElementById("benchmark-filter").addEventListener("input", () => {
     document.getElementById("benchmark").value = "__all__";
     queueRender();
