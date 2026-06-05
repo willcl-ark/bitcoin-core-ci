@@ -107,13 +107,21 @@ tr.movement-uncertain {
   color: var(--muted);
 }
 tr.movement-uncertain .delta-bad,
-tr.movement-uncertain .delta-good {
+tr.movement-uncertain .delta-good,
+tr.movement-uncertain .trend-cell {
   color: var(--muted);
 }
 .name-cell { max-width: 720px; overflow: hidden; text-overflow: ellipsis; }
+.impact-cell,
+.range-cell,
+.value-cell,
+.delta-cell {
+  font-variant-numeric: tabular-nums;
+}
+.range-muted { color: var(--muted); font-weight: 600; }
 .delta-bad { color: var(--bad); font-weight: 700; }
 .delta-good { color: var(--good); font-weight: 700; }
-.spark { width: 110px; height: 28px; }
+.spark { display: block; width: 110px; height: 28px; }
 
 .trend-grid {
   display: grid;

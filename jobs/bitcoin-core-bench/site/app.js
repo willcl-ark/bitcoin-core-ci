@@ -8,6 +8,7 @@ const minTrendRuns = 7;
 const minSampleSupportRatio = 0.8;
 const fullSampleCount = 5;
 const metric = "ns_per_unit";
+const benchmarkNameLimit = 23;
 const seriesFocus = { pinned: null };
 let chart;
 let fullRowsPromise;
@@ -22,10 +23,39 @@ Chart.Tooltip.positioners.offset = (_elements, eventPosition) => ({
   yAlign: "bottom",
 });
 
+const nsScales = [
+  { factor: 1_000_000_000, label: "s" },
+  { factor: 1_000_000, label: "ms" },
+  { factor: 1_000, label: "us" },
+  { factor: 1, label: "ns" },
+];
+
+function scaledDecimals(value) {
+  const abs = Math.abs(value);
+  return abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+}
+
+function scaleForNs(value) {
+  const abs = Math.abs(value);
+  return nsScales.find((item) => abs >= item.factor) || nsScales.at(-1);
+}
+
+function formatNsValue(value, scale = scaleForNs(value)) {
+  const scaled = value / scale.factor;
+  return `${scaled.toFixed(scaledDecimals(scaled))} ${scale.label}`;
+}
+
 function formatNsPerUnit(value, unit) {
   if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
   const suffix = unit ? `/${unit}` : "/unit";
-  return `${value.toFixed(value < 10 ? 3 : 2)} ns${suffix}`;
+  return `${formatNsValue(value)}${suffix}`;
+}
+
+function formatNsRange(min, max, unit) {
+  const suffix = unit ? `/${unit}` : "/unit";
+  const scale = scaleForNs(Math.max(Math.abs(min), Math.abs(max)));
+  if (min === max) return `${formatNsValue(min, scale)}${suffix}`;
+  return `${formatNsValue(min, scale)}-${formatNsValue(max, scale)}${suffix}`;
 }
 
 function unique(values) { return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b)); }
@@ -36,6 +66,93 @@ function chartTime(row) { return row.commit_time || row.run_time; }
 function chartTimestamp(row) { return Date.parse(chartTime(row)); }
 function pinnedSeries() { return seriesFocus.pinned; }
 function needsFullHistory(limit, moverRange) { return limit === 0 || limit > (state.summary.recent_run_count || 90) || moverRange === "all-time"; }
+
+function movementClass(stats) {
+  const delta = stats?.delta;
+  return delta > 0 ? "delta-bad" : delta < 0 ? "delta-good" : "";
+}
+
+function formatImpact(stats) {
+  const delta = stats?.delta;
+  if (delta === null || delta === undefined || Number.isNaN(delta)) return "n/a";
+  if (delta === 0) return "unchanged";
+  const abs = Math.abs(delta);
+  const decimals = abs < 1 ? 2 : 1;
+  return `${abs.toFixed(decimals)}% ${delta < 0 ? "faster" : "slower"}`;
+}
+
+function formatSignedNsPerUnit(value, unit) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatNsPerUnit(Math.abs(value), unit)}`;
+}
+
+function displayBenchmarkName(item) {
+  const name = item?.benchmark || item?.series || "n/a";
+  const suffix = item?.unit ? ` (${item.unit})` : "";
+  const visible = name.length > benchmarkNameLimit
+    ? `${name.slice(0, benchmarkNameLimit)}...`
+    : name;
+  return `${visible}${suffix}`;
+}
+
+function naturalRange(item) {
+  return item?.natural_range || item?.naturalRange || null;
+}
+
+function rangeOutside(item) {
+  const range = naturalRange(item);
+  return range?.eligible && (range.direction === "faster" || range.direction === "slower");
+}
+
+function rangeClass(item) {
+  const range = naturalRange(item);
+  if (!rangeOutside(item)) return "";
+  return range.direction === "slower" ? "delta-bad" : "delta-good";
+}
+
+function impactClass(item) {
+  if (rangeOutside(item)) return rangeClass(item);
+  return naturalRange(item)?.eligible ? "range-muted" : movementClass(item.stats);
+}
+
+function rangeScore(item) {
+  const delta = naturalRange(item)?.delta;
+  return rangeOutside(item) && delta !== null && delta !== undefined && !Number.isNaN(delta)
+    ? Math.abs(delta)
+    : 0;
+}
+
+function formatRangeImpact(item) {
+  return formatImpact(item.stats);
+}
+
+function formatRangeCell(range, unit) {
+  if (!range || range.min === null || range.min === undefined || range.max === null || range.max === undefined) {
+    return `n/a (${range?.count || 0}/${range?.min_points || 3})`;
+  }
+  const value = formatNsRange(range.min, range.max, unit);
+  return range.eligible ? value : `${value} (${range.count}/${range.min_points})`;
+}
+
+function formatRangeTitle(range, unit) {
+  if (!range) return "No recent range data.";
+  if (!range.count) return `No prior readings in the last ${range.days} days.`;
+  const rangeText = formatRangeCell(range, unit);
+  const dates = range.start && range.end ? ` from ${range.start} to ${range.end}` : "";
+  const prefix = `${range.count} prior readings in ${range.days} days${dates}: ${rangeText}`;
+  if (!range.eligible) return `${prefix}; need ${range.min_points} readings.`;
+  if (range.direction === "within") return `${prefix}; latest is within range.`;
+  return `${prefix}; latest is ${pct(range.delta)} ${range.direction === "slower" ? "above" : "below"} range.`;
+}
+
+function formatRangeCardValue(item) {
+  const range = naturalRange(item);
+  if (!rangeOutside(item)) return "n/a";
+  const abs = Math.abs(range.delta);
+  const decimals = abs < 1 ? 2 : 1;
+  return `${abs.toFixed(decimals)}% ${range.direction === "slower" ? "above" : "below"} range`;
+}
 
 function sampleValues(row) {
   return Array.isArray(row?.sample_ns_per_unit_values)
@@ -52,7 +169,7 @@ function formatSpread(row) {
     parts.push(`MAD ${formatNsPerUnit(row.mad_ns_per_unit, row.unit)}`);
   }
   if (samples.length > 0) {
-    parts.push(`range ${formatNsPerUnit(Math.min(...samples), row.unit)}..${formatNsPerUnit(Math.max(...samples), row.unit)}`);
+    parts.push(`range ${formatNsRange(Math.min(...samples), Math.max(...samples), row.unit)}`);
   }
   return parts.join(", ");
 }
@@ -442,14 +559,18 @@ async function rowsForChart(benchmark, filterText, limit, moverRange) {
   return byBenchmark(metric);
 }
 
-function updateTrendCard(id, item, metric) {
+function updateTrendCard(id, item, metric, emptyMessage) {
   const card = document.getElementById(id);
+  const value = card.querySelector(".trend-value");
+  const name = card.querySelector(".trend-name");
   card.disabled = !item;
-  card.querySelector(".trend-name").textContent = item ? item.series : "n/a";
-  card.querySelector(".trend-value").textContent = item ? pct(item.stats.delta) : "n/a";
+  name.textContent = item ? displayBenchmarkName(item) : "n/a";
+  name.title = item ? item.series : "";
+  value.className = ["trend-value", item ? rangeClass(item) : ""].filter(Boolean).join(" ");
+  value.textContent = item ? formatRangeCardValue(item) : "n/a";
   card.querySelector(".trend-detail").textContent = item
-    ? `${formatNsPerUnit(item.previous[metric], item.unit)} to ${formatNsPerUnit(item.latest[metric], item.unit)}; ${formatSampleSupport(item.stats) || formatSpread(item.latest)}`
-    : "Need at least two runs for this metric.";
+    ? `${formatRangeCell(naturalRange(item), item.unit)}; latest ${formatNsPerUnit(item.latest[metric], item.unit)}; ${formatSampleSupport(item.stats) || formatSpread(item.latest)}`
+    : emptyMessage;
   card.onclick = item
     ? () => {
         document.getElementById("benchmark").value = item.series;
@@ -473,19 +594,24 @@ function renderOverview() {
       const bDelta = b.stats?.delta;
       const aAbs = aDelta === null || aDelta === undefined || Number.isNaN(aDelta) ? -1 : Math.abs(aDelta);
       const bAbs = bDelta === null || bDelta === undefined || Number.isNaN(bDelta) ? -1 : Math.abs(bDelta);
+      const aOutside = rangeOutside(a) ? 1 : 0;
+      const bOutside = rangeOutside(b) ? 1 : 0;
+      if (aOutside !== bOutside) return bOutside - aOutside;
+      if (aOutside && bOutside) return rangeScore(b) - rangeScore(a) || a.series.localeCompare(b.series);
       return bAbs - aAbs || a.series.localeCompare(b.series);
     });
 
   const enoughRuns = (state.metadata.runs || 0) >= minTrendRuns;
   document.getElementById("overview-note").textContent = enoughRuns
-    ? "Sorted by largest latest change versus the previous run; sampled runs need 80% support to rank."
+    ? "Sorted by latest measurements outside each benchmark's prior 30-day range; within-range changes follow by previous-run delta. A range needs 3 prior readings."
     : `Need ${minTrendRuns} runs for robust rolling-median signals; showing latest values and previous-run deltas when available.`;
 
   const supportedItems = items.filter((item) => item.stats?.eligible);
-  const downtrend = supportedItems.filter((item) => item.stats.delta < 0).sort((a, b) => a.stats.delta - b.stats.delta)[0] || null;
-  const uptrend = supportedItems.filter((item) => item.stats.delta > 0).sort((a, b) => b.stats.delta - a.stats.delta)[0] || null;
-  updateTrendCard("trend-down", downtrend, metric);
-  updateTrendCard("trend-up", uptrend, metric);
+  const rangeItems = supportedItems.filter(rangeOutside);
+  const downtrend = rangeItems.filter((item) => naturalRange(item).direction === "faster").sort((a, b) => naturalRange(a).delta - naturalRange(b).delta)[0] || null;
+  const uptrend = rangeItems.filter((item) => naturalRange(item).direction === "slower").sort((a, b) => naturalRange(b).delta - naturalRange(a).delta)[0] || null;
+  updateTrendCard("trend-down", downtrend, metric, "No speedup outside the prior 30-day range.");
+  updateTrendCard("trend-up", uptrend, metric, "No slowdown outside the prior 30-day range.");
 
   const body = document.getElementById("overview-body");
   body.replaceChildren(...items.map((item) => {
@@ -494,27 +620,43 @@ function renderOverview() {
     const nameCell = document.createElement("td");
     nameCell.className = "name-cell";
     nameCell.title = item.series;
-    nameCell.textContent = item.series;
+    nameCell.textContent = displayBenchmarkName(item);
 
-    const latestCell = document.createElement("td");
-    latestCell.textContent = formatNsPerUnit(item.latest[metric], item.unit);
-    latestCell.title = formatSpread(item.latest);
+    const impactCell = document.createElement("td");
+    impactCell.className = ["impact-cell", impactClass(item)].filter(Boolean).join(" ");
+    impactCell.textContent = formatRangeImpact(item);
+    impactCell.title = item.stats?.eligible === false
+      ? `Not ranked as a mover: ${formatSampleSupport(item.stats) || "insufficient sample support"}`
+      : formatSampleSupport(item.stats) || formatRangeTitle(naturalRange(item), item.unit);
+
+    const rangeCell = document.createElement("td");
+    rangeCell.className = "range-cell";
+    rangeCell.textContent = formatRangeCell(naturalRange(item), item.unit);
+    rangeCell.title = formatRangeTitle(naturalRange(item), item.unit);
 
     const previousCell = document.createElement("td");
+    previousCell.className = "value-cell";
     previousCell.textContent = item.previous ? formatNsPerUnit(item.previous[metric], item.unit) : "n/a";
     previousCell.title = item.previous ? formatSpread(item.previous) : "n/a";
 
+    const latestCell = document.createElement("td");
+    latestCell.className = "value-cell";
+    latestCell.textContent = formatNsPerUnit(item.latest[metric], item.unit);
+    latestCell.title = formatSpread(item.latest);
+
+    const absoluteDelta = item.previous ? item.latest[metric] - item.previous[metric] : null;
     const deltaCell = document.createElement("td");
-    deltaCell.className = item.stats?.delta > 0 ? "delta-bad" : item.stats?.delta < 0 ? "delta-good" : "";
-    deltaCell.textContent = pct(item.stats?.delta);
+    deltaCell.className = ["delta-cell", movementClass(item.stats)].filter(Boolean).join(" ");
+    deltaCell.textContent = formatSignedNsPerUnit(absoluteDelta, item.unit);
     deltaCell.title = item.stats?.eligible === false
       ? `Not ranked as a mover: ${formatSampleSupport(item.stats) || "insufficient sample support"}`
       : formatSampleSupport(item.stats);
 
     const trendCell = document.createElement("td");
+    trendCell.className = ["trend-cell", movementClass(item.stats)].filter(Boolean).join(" ");
     trendCell.innerHTML = sparklineValues(item.sparkline || []);
 
-    tr.replaceChildren(nameCell, latestCell, previousCell, deltaCell, trendCell);
+    tr.replaceChildren(nameCell, impactCell, rangeCell, previousCell, latestCell, deltaCell, trendCell);
     tr.addEventListener("click", () => {
       document.getElementById("benchmark").value = item.series;
       queueRender();

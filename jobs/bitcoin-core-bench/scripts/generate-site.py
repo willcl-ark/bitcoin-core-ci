@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import datetime
 import gzip
 import hashlib
 import json
@@ -13,6 +14,8 @@ import tempfile
 SITE_DIR = pathlib.Path(__file__).resolve().parents[1] / "site"
 RECENT_RUNS = 30
 MIN_TREND_RUNS = 7
+NATURAL_RANGE_DAYS = 30
+MIN_NATURAL_RANGE_POINTS = 3
 METRIC = "ns_per_unit"
 
 
@@ -155,6 +158,12 @@ def chart_time(row):
     return row["commit_time"] or row["run_time"]
 
 
+def parse_chart_time(value):
+    if not value:
+        return None
+    return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
 def unique_sorted(values):
     return sorted(set(values))
 
@@ -180,6 +189,58 @@ def sparkline_values(rows):
     return [row[METRIC] for row in rows[-30:] if row[METRIC] is not None]
 
 
+def natural_range(group_rows, latest):
+    result = {
+        "count": 0,
+        "days": NATURAL_RANGE_DAYS,
+        "delta": None,
+        "direction": "insufficient",
+        "eligible": False,
+        "end": None,
+        "max": None,
+        "min": None,
+        "min_points": MIN_NATURAL_RANGE_POINTS,
+        "start": None,
+    }
+    latest_value = latest[METRIC]
+    latest_time = parse_chart_time(chart_time(latest))
+    if latest_value is None or latest_time is None:
+        return result
+
+    cutoff = latest_time - datetime.timedelta(days=NATURAL_RANGE_DAYS)
+    prior_rows = []
+    for row in group_rows:
+        row_time = parse_chart_time(chart_time(row))
+        if row_time is None or row_time >= latest_time or row_time < cutoff:
+            continue
+        if row[METRIC] is not None:
+            prior_rows.append(row)
+
+    result["count"] = len(prior_rows)
+    if not prior_rows:
+        return result
+
+    values = [row[METRIC] for row in prior_rows]
+    result["min"] = min(values)
+    result["max"] = max(values)
+    result["start"] = chart_time(prior_rows[0])
+    result["end"] = chart_time(prior_rows[-1])
+    if len(prior_rows) < MIN_NATURAL_RANGE_POINTS:
+        return result
+
+    result["eligible"] = True
+    if latest_value < result["min"]:
+        result["direction"] = "faster"
+        result["delta"] = pct_delta(latest_value, result["min"])
+    elif latest_value > result["max"]:
+        result["direction"] = "slower"
+        result["delta"] = pct_delta(latest_value, result["max"])
+    else:
+        result["direction"] = "within"
+        result["delta"] = 0
+    return result
+
+
 def overview_rows(rows):
     items = []
     for (benchmark, unit), group_rows in rows_by_series(rows).items():
@@ -192,6 +253,7 @@ def overview_rows(rows):
                 "unit": unit,
                 "series": series_label(benchmark, unit),
                 "latest": latest,
+                "natural_range": natural_range(group_rows, latest),
                 "previous": previous,
                 "delta": delta,
                 "sparkline": sparkline_values(group_rows),
