@@ -46,6 +46,7 @@ artifact_dir="${BENCHMARK_ARTIFACT_ROOT}/${safe_run_time}-${commit_short}"
 mkdir -p "${artifact_dir}"
 
 metadata_file="${artifact_dir}/metadata.json"
+toolchain_file="${artifact_dir}/toolchain.json"
 bench_json="${artifact_dir}/bench.json"
 bench_log="${artifact_dir}/bench.log"
 bench_csv="${artifact_dir}/bench.csv"
@@ -96,10 +97,11 @@ nix develop "${CI_FLAKE:?}#bitcoin-core-bench-gcc" \
     --no-write-lock-file \
     --command bash -euo pipefail -c '
         export CC=gcc
+        python3 "$3" write-toolchain --output "$4"
         ctest --verbose -S scripts/bench.cmake \
             -DCTEST_SOURCE_DIRECTORY="$1" \
             -DCTEST_SITE="$2"
-    ' bash "${worktree}" "${CTEST_SITE}"
+    ' bash "${worktree}" "${CTEST_SITE}" "${script_dir}/record-bench-results.py" "${toolchain_file}"
 
 bench_binary=""
 for candidate in \
@@ -116,19 +118,13 @@ if [ -z "${bench_binary}" ]; then
     exit 1
 fi
 
-bench_command=("${bench_binary}")
-if [ -n "${BENCHMARK_CPU_AFFINITY}" ]; then
-    bench_command=(taskset -c "${BENCHMARK_CPU_AFFINITY}" "${bench_command[@]}")
-fi
+date_bin=$(command -v date)
+python_bin=$(command -v python3)
+taskset_bin=$(command -v taskset)
 
-if [ -n "${BENCHMARK_CPUSET_SHIELD:-}" ]; then
-    bench_command=(
-        /run/wrappers/bin/sudo "${script_dir}/run-with-cpuset-shield.sh"
-        "${BENCHMARK_CPUSET_SHIELD}"
-        "${BENCHMARK_CPUSET_HOUSEKEEPING}"
-        --
-        "${bench_command[@]}"
-    )
+base_bench_command=("${bench_binary}")
+if [ -n "${BENCHMARK_CPU_AFFINITY}" ]; then
+    base_bench_command=("${taskset_bin}" -c "${BENCHMARK_CPU_AFFINITY}" "${base_bench_command[@]}")
 fi
 
 for sample_index in $(seq 1 "${BENCHMARK_RUN_COUNT}"); do
@@ -136,6 +132,9 @@ for sample_index in $(seq 1 "${BENCHMARK_RUN_COUNT}"); do
     sample_dir="${artifact_dir}/${sample_name}"
     mkdir -p "${sample_dir}"
     sample_metadata="${sample_dir}/metadata.json"
+    sample_environment_before="${sample_dir}/environment-before.json"
+    sample_environment_during="${sample_dir}/environment-during.json"
+    sample_environment_after="${sample_dir}/environment-after.json"
     sample_json="${sample_dir}/bench.json"
     sample_log="${sample_dir}/bench.log"
     sample_csv="${sample_dir}/bench.csv"
@@ -158,18 +157,77 @@ for sample_index in $(seq 1 "${BENCHMARK_RUN_COUNT}"); do
         --cpuset-housekeeping "${BENCHMARK_CPUSET_HOUSEKEEPING:-}" \
         --command "bench_bitcoin -min-time=${BENCHMARK_MIN_TIME_MS} -output-json=${sample_json} -output-csv=${sample_csv}"
 
+    python3 "${script_dir}/record-bench-results.py" write-environment \
+        --output "${sample_environment_before}" \
+        --phase before \
+        --captured-at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+        --toolchain "${toolchain_file}" \
+        --cpu-affinity "${BENCHMARK_CPU_AFFINITY}" \
+        --cpuset-shield "${BENCHMARK_CPUSET_SHIELD:-}" \
+        --cpuset-housekeeping "${BENCHMARK_CPUSET_HOUSEKEEPING:-}"
+
+    sample_bench_command=(
+        "${base_bench_command[@]}"
+        -min-time="${BENCHMARK_MIN_TIME_MS}"
+        -output-json="${sample_json}"
+        -output-csv="${sample_csv}"
+    )
+    sample_bench_command=(
+        "${BASH}"
+        -euo
+        pipefail
+        -c
+        '
+            "$1" "$2" write-environment \
+                --output "$4" \
+                --phase during \
+                --captured-at "$("$3" -u +"%Y-%m-%dT%H:%M:%SZ")" \
+                --toolchain "$5" \
+                --cpu-affinity "$6" \
+                --cpuset-shield "$7" \
+                --cpuset-housekeeping "$8"
+            shift 8
+            exec "$@"
+        '
+        bash
+        "${python_bin}"
+        "${script_dir}/record-bench-results.py"
+        "${date_bin}"
+        "${sample_environment_during}"
+        "${toolchain_file}"
+        "${BENCHMARK_CPU_AFFINITY}"
+        "${BENCHMARK_CPUSET_SHIELD:-}"
+        "${BENCHMARK_CPUSET_HOUSEKEEPING:-}"
+        "${sample_bench_command[@]}"
+    )
+    if [ -n "${BENCHMARK_CPUSET_SHIELD:-}" ]; then
+        sample_bench_command=(
+            /run/wrappers/bin/sudo "${script_dir}/run-with-cpuset-shield.sh"
+            "${BENCHMARK_CPUSET_SHIELD}"
+            "${BENCHMARK_CPUSET_HOUSEKEEPING}"
+            --
+            "${sample_bench_command[@]}"
+        )
+    fi
+
     {
         printf '== %s/%s %s ==\n' "${sample_index}" "${BENCHMARK_RUN_COUNT}" "${sample_name}"
-        "${bench_command[@]}" \
-            -min-time="${BENCHMARK_MIN_TIME_MS}" \
-            -output-json="${sample_json}" \
-            -output-csv="${sample_csv}"
+        "${sample_bench_command[@]}"
     } 2>&1 | tee "${sample_log}" | tee -a "${bench_log}"
 
     if [ ! -s "${sample_json}" ]; then
         echo "benchmark JSON was not produced: ${sample_json}" >&2
         exit 1
     fi
+
+    python3 "${script_dir}/record-bench-results.py" write-environment \
+        --output "${sample_environment_after}" \
+        --phase after \
+        --captured-at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+        --toolchain "${toolchain_file}" \
+        --cpu-affinity "${BENCHMARK_CPU_AFFINITY}" \
+        --cpuset-shield "${BENCHMARK_CPUSET_SHIELD:-}" \
+        --cpuset-housekeeping "${BENCHMARK_CPUSET_HOUSEKEEPING:-}"
 
     if [ "${sample_index}" -eq 1 ]; then
         cp "${sample_json}" "${bench_json}"
@@ -179,6 +237,9 @@ for sample_index in $(seq 1 "${BENCHMARK_RUN_COUNT}"); do
     python3 "${script_dir}/record-bench-results.py" record \
         --db "${BENCHMARK_DB}" \
         --metadata "${sample_metadata}" \
+        --environment-before "${sample_environment_before}" \
+        --environment-during "${sample_environment_during}" \
+        --environment-after "${sample_environment_after}" \
         --bench-json "${sample_json}"
 done
 
