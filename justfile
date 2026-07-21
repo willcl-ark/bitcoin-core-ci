@@ -59,6 +59,16 @@ logs host=default_host:
 nightly-start host=default_host:
     ssh {{host}} "systemctl start ci-nightly-bitcoin-enqueue.service"
 
+# Enqueue a Bitcoin Core Guix build for a revision
+[group('live')]
+guix-submit revision host=default_host:
+    ssh {{host}} "sudo -u ci-runner ci-runner --queue-dir /var/lib/ci-runner/queue enqueue bitcoin-guix --kind manual --revision '{{revision}}'"
+
+# Enqueue a Bitcoin Core benchmark run for a full commit hash
+[group('live')]
+bench-submit revision host=default_host:
+    ssh {{host}} "sudo -u ci-runner ci-runner --queue-dir /var/lib/ci-runner/queue enqueue bitcoin-bench --kind manual --revision '{{revision}}'"
+
 # Show status for CI services
 [group('live')]
 status host=default_host:
