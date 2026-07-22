@@ -10,10 +10,11 @@ if [ ! -d "${SDK_PATH}/Xcode-26.1.1-17B100-extracted-SDK-with-libcxx-headers" ];
         tar -xf - -C "${SDK_PATH}"
 fi
 
-git -C "${BITCOIN_REPO}" fetch origin
 if [ -n "${CI_REVISION:-}" ]; then
+    git -C "${BITCOIN_REPO}" fetch origin "${CI_REVISION}"
     git -C "${BITCOIN_REPO}" checkout --detach "${CI_REVISION}"
 else
+    git -C "${BITCOIN_REPO}" fetch origin
     git -C "${BITCOIN_REPO}" checkout -B master origin/master
 fi
 git -C "${BITCOIN_REPO}" reset --hard HEAD
