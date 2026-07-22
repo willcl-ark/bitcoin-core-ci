@@ -185,6 +185,7 @@ in
   systemd.services = {
     ci-bitcoin-bench-run = {
       description = "Run Bitcoin Core continuous benchmark CI";
+      restartIfChanged = false;
       path = [
         pkgs.bash
         pkgs.coreutils

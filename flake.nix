@@ -223,6 +223,7 @@
 
                 systemd.services.ci-runner = {
                   description = "CI queue runner";
+                  restartIfChanged = false;
                   wantedBy = [ "multi-user.target" ];
                   wants = [ "network-online.target" ];
                   after = [ "network-online.target" ];
