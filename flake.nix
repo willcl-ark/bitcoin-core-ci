@@ -223,7 +223,7 @@
 
                 systemd.services.ci-runner = {
                   description = "CI queue runner";
-                  restartIfChanged = false;
+                  reloadIfChanged = true;
                   wantedBy = [ "multi-user.target" ];
                   wants = [ "network-online.target" ];
                   after = [ "network-online.target" ];
@@ -249,6 +249,7 @@
                     Group = "ci-runner";
                     WorkingDirectory = ciHome;
                     ExecStart = "${ciRunner}/bin/ci-runner --queue-dir ${queueDir} run --config ${runnerConfig}";
+                    ExecReload = "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
                     Restart = "always";
                     RestartSec = "10";
                   };

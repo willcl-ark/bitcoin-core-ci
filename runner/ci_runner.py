@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 import pathlib
+import signal
 import subprocess
 import sys
 import time
@@ -121,12 +122,22 @@ def run_item(config, item):
 
 
 def run(args):
+    stop_requested = False
+
+    def request_stop(_signum, _frame):
+        nonlocal stop_requested
+        stop_requested = True
+        print("reload requested; stopping after the current job", flush=True)
+
+    signal.signal(signal.SIGHUP, request_stop)
     queue_paths = ensure_queue(args.queue_dir)
     config = load_config(args.config)
     fail_running_items(queue_paths)
 
-    while True:
+    while not stop_requested:
         with QueueLock(queue_paths["lock"]):
+            if stop_requested:
+                break
             items = pending_items(queue_paths)
             if not items:
                 item = None
