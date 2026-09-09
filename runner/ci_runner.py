@@ -74,7 +74,11 @@ def pending_items(queue_paths):
     items = []
     for path in queue_paths["pending"].glob("*.json"):
         items.append((path, load_json(path)))
-    return sorted(items, key=lambda entry: (entry[1]["created_at"], entry[1]["id"]))
+    return sorted(items, key=lambda entry: (
+        entry[1]["kind"] != "manual",
+        datetime.datetime.fromisoformat(entry[1]["created_at"]),
+        entry[1]["id"],
+    ))
 
 
 def enqueue(args):
@@ -85,10 +89,11 @@ def enqueue(args):
         "kind": args.kind,
         "dedupe_key": args.dedupe_key or "",
         "revision": args.revision or "",
-        "created_at": now(),
+        "description": args.description,
     }
 
     with QueueLock(queue_paths["lock"]):
+        item["created_at"] = datetime.datetime.now(datetime.UTC).isoformat(timespec="microseconds")
         if args.replace_pending and item["dedupe_key"]:
             for path, existing in pending_items(queue_paths):
                 if existing.get("dedupe_key") == item["dedupe_key"]:
@@ -111,6 +116,7 @@ def run_item(config, item):
         {
             "CI_JOB_ID": item["id"],
             "CI_JOB_KIND": item["kind"],
+            "CI_JOB_DESCRIPTION": item.get("description", ""),
             "CI_REVISION": item.get("revision", ""),
         }
     )
@@ -198,6 +204,7 @@ def watch_git_ref(args):
                 kind=args.kind,
                 dedupe_key=args.dedupe_key or f"{args.kind}:{args.job}",
                 revision=revision,
+                description="",
                 replace_pending=True,
                 id=None,
             )
@@ -231,6 +238,7 @@ def main():
     enqueue_parser.add_argument("--kind", required=True)
     enqueue_parser.add_argument("--dedupe-key")
     enqueue_parser.add_argument("--revision")
+    enqueue_parser.add_argument("--description", default="")
     enqueue_parser.add_argument("--replace-pending", action="store_true")
     enqueue_parser.add_argument("--id")
     enqueue_parser.set_defaults(func=enqueue)

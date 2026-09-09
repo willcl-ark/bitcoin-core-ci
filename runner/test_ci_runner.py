@@ -8,9 +8,49 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
+
+import ci_runner
 
 
 RUNNER = pathlib.Path(__file__).with_name("ci_runner.py")
+
+
+class QueueTest(unittest.TestCase):
+    def test_manual_priority_and_fifo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = pathlib.Path(tmp)
+            for item_id, kind in [
+                ("z-background", "continuous"),
+                ("z-first", "manual"),
+                ("a-second", "manual"),
+                ("a-background", "nightly"),
+            ]:
+                subprocess.run(
+                    [sys.executable, RUNNER, "--queue-dir", queue, "enqueue", "bitcoin-guix",
+                     "--kind", kind, "--id", item_id],
+                    check=True, capture_output=True,
+                )
+            items = ci_runner.pending_items(ci_runner.paths(queue))
+            self.assertEqual(
+                [item["id"] for _, item in items],
+                ["z-first", "a-second", "z-background", "a-background"],
+            )
+
+    def test_description_reaches_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = pathlib.Path(tmp)
+            description = "PR12345 user's $(literal)"
+            subprocess.run(
+                [sys.executable, RUNNER, "--queue-dir", queue, "enqueue", "bitcoin-guix",
+                 "--kind", "manual", "--description", description],
+                check=True, capture_output=True,
+            )
+            _, item = ci_runner.pending_items(ci_runner.paths(queue))[0]
+            with mock.patch.object(ci_runner.subprocess, "run") as run:
+                run.return_value.returncode = 0
+                ci_runner.run_item({"bitcoin-guix": {"command": ["true"]}}, item)
+            self.assertEqual(run.call_args.kwargs["env"]["CI_JOB_DESCRIPTION"], description)
 
 
 class RunnerReloadTest(unittest.TestCase):

@@ -59,11 +59,11 @@ logs host=default_host:
 nightly-start host=default_host:
     ssh {{host}} "systemctl start ci-nightly-bitcoin-enqueue.service"
 
-# Enqueue a Bitcoin Core Guix build for a full commit hash
+# Enqueue a priority Bitcoin Core Guix build with an optional build-name description
 [group('live')]
-guix-submit revision host=default_host:
+guix-submit revision description='' host=default_host:
     @[[ {{quote(revision)}} =~ ^[0-9a-fA-F]{40}$ ]] || { echo "error: revision must be a full 40-character hexadecimal commit ID" >&2; exit 2; }
-    ssh {{host}} "sudo -u ci-runner ci-runner --queue-dir /var/lib/ci-runner/queue enqueue bitcoin-guix --kind manual --revision '{{revision}}'"
+    ssh {{quote(host)}} {{quote("sudo -u ci-runner ci-runner --queue-dir /var/lib/ci-runner/queue enqueue bitcoin-guix --kind manual --revision " + quote(revision) + " --description " + quote(description))}}
 
 # Enqueue a Bitcoin Core benchmark run for a full commit hash
 [group('live')]
