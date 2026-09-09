@@ -35,6 +35,8 @@ in
   };
 
   systemd.services.ci-watch-bitcoin-valgrind-fuzz = {
+    # Disabled until the Valgrind fuzz job works again.
+    enable = false;
     description = "Watch Bitcoin Core valgrind fuzz CI";
     wantedBy = [ "multi-user.target" ];
     wants = [ "network-online.target" ];
