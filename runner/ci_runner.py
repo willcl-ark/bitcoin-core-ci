@@ -228,6 +228,19 @@ def status(args):
             print(f"  {item['id']} {item['job']}{suffix}")
 
 
+def cancel(args):
+    queue_paths = ensure_queue(args.queue_dir)
+    path = item_file(queue_paths["pending"], {"id": args.id})
+    with QueueLock(queue_paths["lock"]):
+        if path.exists():
+            path.unlink()
+            print(f"cancelled {args.id}")
+            return
+        if item_file(queue_paths["running"], {"id": args.id}).exists():
+            raise SystemExit(f"error: job is already running: {args.id}")
+        raise SystemExit(f"error: pending job not found: {args.id}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--queue-dir", type=pathlib.Path, default=DEFAULT_QUEUE_DIR)
@@ -260,6 +273,10 @@ def main():
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument("--limit", type=int, default=20)
     status_parser.set_defaults(func=status)
+
+    cancel_parser = subparsers.add_parser("cancel")
+    cancel_parser.add_argument("id")
+    cancel_parser.set_defaults(func=cancel)
 
     args = parser.parse_args()
     args.func(args)

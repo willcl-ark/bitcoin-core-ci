@@ -91,6 +91,11 @@ nightly-status host=default_host:
 queue-status host=default_host:
     ssh {{host}} "sudo -u ci-runner ci-runner status"
 
+# Cancel a pending CI job by ID
+[group('live')]
+queue-cancel job_id host=default_host:
+    ssh {{host}} "sudo -u ci-runner ci-runner --queue-dir /var/lib/ci-runner/queue cancel '{{job_id}}'"
+
 # Copy the live benchmark DB, regenerate the dashboard, and serve it locally
 [group('test')]
 bench-site-preview host=default_host port=bench_preview_port:

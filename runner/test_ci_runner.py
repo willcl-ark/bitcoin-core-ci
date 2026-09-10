@@ -52,6 +52,21 @@ class QueueTest(unittest.TestCase):
                 ci_runner.run_item({"bitcoin-guix": {"command": ["true"]}}, item)
             self.assertEqual(run.call_args.kwargs["env"]["CI_JOB_DESCRIPTION"], description)
 
+    def test_cancel_removes_pending_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = pathlib.Path(tmp)
+            subprocess.run(
+                [sys.executable, RUNNER, "--queue-dir", queue, "enqueue", "bitcoin-guix",
+                 "--kind", "manual", "--id", "cancel-me"],
+                check=True, capture_output=True,
+            )
+            result = subprocess.run(
+                [sys.executable, RUNNER, "--queue-dir", queue, "cancel", "cancel-me"],
+                check=True, capture_output=True, text=True,
+            )
+            self.assertEqual(result.stdout, "cancelled cancel-me\n")
+            self.assertEqual(ci_runner.pending_items(ci_runner.paths(queue)), [])
+
 
 class RunnerReloadTest(unittest.TestCase):
     def test_reload_finishes_current_job_without_starting_next(self):
