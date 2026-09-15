@@ -30,6 +30,7 @@ list(APPEND CTEST_NOTES_FILES "${ctest_custom_file}")
 
 ctest_start(Continuous)
 ctest_update()
+ctest_submit(PARTS Update Notes)
 ctest_build(RETURN_VALUE build_result)
 
 if(EXISTS "${GUIX_BUILD_LOG}")
@@ -53,7 +54,8 @@ if(EXISTS "${HASH_FILE}")
 endif()
 
 list(REMOVE_DUPLICATES CTEST_NOTES_FILES)
-ctest_submit(PARTS Update Build Notes Done)
+ctest_submit(PARTS Build Notes)
+ctest_submit(PARTS Done)
 
 if(NOT build_result EQUAL 0)
     message(FATAL_ERROR "Guix build failed with exit code ${build_result}; see ${GUIX_BUILD_LOG}")
